@@ -108,6 +108,11 @@ function renderConsent(state: State): void {
         <li>Poi le nuove visite, automaticamente ogni ${formatInterval(state.syncIntervalMinutes)}</li>
         <li>Inviate a <code>${escape(SERVER_URL)}</code></li>
       </ul>
+      <h2>Cosa non lascia mai il browser</h2>
+      <ul>
+        <li>File del tuo computer, pagine interne di Chrome ed estensioni</li>
+        <li>localhost e indirizzi di reti private (router, NAS, intranet)</li>
+      </ul>
       <p class="muted">Puoi revocare il consenso e cancellare i tuoi dati in qualsiasi momento da questo pannello.</p>
     </section>
 

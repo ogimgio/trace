@@ -23,5 +23,5 @@
   },
   "permissions": ["alarms", "storage"],
   "optional_permissions": ["history"],
-  "host_permissions": ["http://localhost:8787/*"]
+  "host_permissions": ["https://trace-rewards.vercel.app/*", "http://localhost:8787/*"]
 }

@@ -4,8 +4,8 @@ import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
 import { Keypair, type PublicKey } from '@solana/web3.js';
-import { createApp } from '../src/app.ts';
-import { openDb } from '../src/db.ts';
+import { createApp } from '../src/api.ts';
+import { startTestDb } from './db.ts';
 import { CHALLENGE_TTL_MS } from '../src/rewards/link.ts';
 import { EPOCH_MS } from '../src/rewards/policy.ts';
 
@@ -26,7 +26,7 @@ function signWith(keypair: Keypair, message: string): string {
 }
 
 let base = '';
-let close: () => void;
+let close: () => Promise<void>;
 let clock = Date.now();
 const sent: string[] = [];
 
@@ -37,10 +37,14 @@ before(async () => {
       return { signature: `sig-${sent.length}`, explorerUrl: '' };
     },
   };
-  const server = createApp(openDb(':memory:'), { rewarder, now: () => clock }).listen(0, '127.0.0.1');
+  const db = await startTestDb();
+  const server = createApp(db.sql, { rewarder, now: () => clock, cronSecret: 'cron-test' }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  close = () => server.close();
+  close = async () => {
+    server.close();
+    await db.stop();
+  };
 });
 
 after(() => close());
@@ -80,7 +84,7 @@ test('signed link connects the wallet and sends the welcome bonus right away', a
   await newDevice('dev-1');
   const alice = Keypair.generate();
   const { body: c } = await challenge('dev-1');
-  assert.match(c.url, /^\/link\?code=[0-9a-f]{32}$/);
+  assert.match(c.url, /^\/link\.html\?code=[0-9a-f]{32}$/);
 
   const info = await (await fetch(`${base}/api/link/${c.code}`)).json();
   assert.equal(info.status, 'valid');
@@ -165,10 +169,15 @@ test('challenge errors and the signing page', async () => {
   await newDevice('dev-6');
   assert.equal((await challenge('dev-6', 'unlink')).status, 409);
 
-  const page = await fetch(`${base}/link?code=x`);
+  const page = await fetch(`${base}/link.html?code=x`);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /signMessage/);
-  assert.equal((await fetch(`${base}/link/logo.svg`)).status, 200);
+  assert.equal((await fetch(`${base}/logo.svg`)).status, 200);
+
+  // Il cron richiede il segreto
+  assert.equal((await fetch(`${base}/api/cron/settle`)).status, 401);
+  const cron = await fetch(`${base}/api/cron/settle`, { headers: { authorization: 'Bearer cron-test' } });
+  assert.equal(cron.status, 200);
 
   // L'API vecchia senza firma non esiste più
   const unsigned = await fetch(`${base}/api/devices/dev-6/wallet`, json('PUT', { wallet: Keypair.generate().publicKey.toBase58() }));

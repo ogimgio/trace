@@ -1,11 +1,11 @@
 import { createPublicKey, randomBytes, verify } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Sql } from '../db.ts';
 import { PublicKey } from '@solana/web3.js';
 
 // Collegamento del wallet con firma.
 //
 // 1. L'estensione chiede una "challenge" per il suo device: un codice monouso che scade in 10 minuti.
-// 2. Apre /link?code=..., una pagina servita da questo server, dove Phantom firma il messaggio della challenge.
+// 2. Apre /link.html?code=..., una pagina servita da questo server, dove Phantom firma il messaggio della challenge.
 // 3. Il server verifica la firma con la chiave pubblica del wallet: così sa che il wallet è davvero dell'utente.
 //
 // Una volta collegato, il wallet è bloccato: per cambiarlo serve prima una challenge 'unlink'
@@ -24,23 +24,7 @@ export interface Challenge {
   used_at: number | null;
 }
 
-const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS wallet_challenges (
-    code        TEXT PRIMARY KEY,
-    device_id   TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    action      TEXT NOT NULL CHECK (action IN ('link', 'unlink')),
-    wallet      TEXT,
-    created_at  INTEGER NOT NULL,
-    expires_at  INTEGER NOT NULL,
-    used_at     INTEGER
-  );
-`;
-
-export function ensureLinkSchema(db: DatabaseSync) {
-  db.exec(SCHEMA);
-}
-
-export function createChallenge(db: DatabaseSync, deviceId: string, action: LinkAction, wallet: string | null, now: number): Challenge {
+export async function createChallenge(sql: Sql, deviceId: string, action: LinkAction, wallet: string | null, now: number): Promise<Challenge> {
   const challenge: Challenge = {
     code: randomBytes(16).toString('hex'),
     device_id: deviceId,
@@ -49,21 +33,26 @@ export function createChallenge(db: DatabaseSync, deviceId: string, action: Link
     expires_at: now + CHALLENGE_TTL_MS,
     used_at: null,
   };
-  db.prepare('INSERT INTO wallet_challenges (code, device_id, action, wallet, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(challenge.code, deviceId, action, wallet, now, challenge.expires_at);
+  await sql`
+    INSERT INTO wallet_challenges (code, device_id, action, wallet, created_at, expires_at)
+    VALUES (${challenge.code}, ${deviceId}, ${action}, ${wallet}, ${now}, ${challenge.expires_at})
+  `;
   return challenge;
 }
 
-export function getChallenge(db: DatabaseSync, code: string): Challenge | undefined {
-  return db.prepare('SELECT code, device_id, action, wallet, expires_at, used_at FROM wallet_challenges WHERE code = ?')
-    .get(code) as unknown as Challenge | undefined;
+export async function getChallenge(sql: Sql, code: string): Promise<Challenge | undefined> {
+  const [row] = await sql<Challenge[]>`
+    SELECT code, device_id, action, wallet, expires_at, used_at FROM wallet_challenges WHERE code = ${code}
+  `;
+  return row;
 }
 
 // Segna la challenge come usata solo se è ancora valida: due richieste con lo stesso codice non passano entrambe.
-export function consumeChallenge(db: DatabaseSync, code: string, now: number): boolean {
-  const result = db.prepare('UPDATE wallet_challenges SET used_at = ? WHERE code = ? AND used_at IS NULL AND expires_at > ?')
-    .run(now, code, now);
-  return Number(result.changes) === 1;
+export async function consumeChallenge(sql: Sql, code: string, now: number): Promise<boolean> {
+  const result = await sql`
+    UPDATE wallet_challenges SET used_at = ${now} WHERE code = ${code} AND used_at IS NULL AND expires_at > ${now}
+  `;
+  return result.count === 1;
 }
 
 // Il testo che l'utente vede in Phantom e firma. Contiene device e codice, quindi la firma non vale per altro.

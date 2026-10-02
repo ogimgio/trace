@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TRACE</title>
+  <meta name="description" content="TRACE pays you in tokens for the browsing history you choose to share. Built on Solana.">
+  <link rel="icon" href="/logo.svg">
+  <style>
+    :root {
+      --bg: #ffffff; --fg: #16181d; --muted: #5f6573; --card: #f4f5f7; --border: #e2e4e9;
+      --accent: #7c3aed; --accent-fg: #ffffff; --green: #0f9f6e;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #090b16; --fg: #ececf1; --muted: #9a9fac; --card: #12152a; --border: #23284a;
+        --accent: #a78bfa; --accent-fg: #0b0d18; --green: #14f195;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 48px 16px 64px; }
+    .hero { text-align: center; padding: 24px 0 40px; }
+    .hero img { width: 112px; height: 112px; }
+    h1 { margin: 12px 0 4px; font-size: 40px; letter-spacing: 0.14em; }
+    .tagline { margin: 0 auto 24px; max-width: 520px; font-size: 19px; color: var(--muted); }
+    .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn { display: inline-block; padding: 12px 20px; border-radius: 10px; font-weight: 600; text-decoration: none;
+           border: 1px solid var(--border); color: var(--fg); background: var(--card); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    h2 { margin: 40px 0 12px; font-size: 22px; }
+    p { margin: 0 0 12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 12px 0; }
+    ol, ul { margin: 0; padding-left: 22px; }
+    li { margin: 6px 0; }
+    code { font-size: 14px; overflow-wrap: anywhere; }
+    a { color: var(--accent); }
+    .muted { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .stat strong { display: block; font-size: 24px; }
+    .stat span { color: var(--muted); font-size: 14px; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; }
+    dt { color: var(--muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    @media (max-width: 520px) { dl { grid-template-columns: 1fr; gap: 2px; } dd { margin-bottom: 8px; } h1 { font-size: 32px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <img src="/logo.svg" alt="TRACE logo">
+      <h1>TRACE</h1>
+      <p class="tagline">Your browsing history is already being harvested for free. TRACE pays you for the part you choose to share, in tokens on Solana.</p>
+      <div class="actions">
+        <a class="btn primary" href="/trace-extension.zip" download>Download the Chrome extension</a>
+        <a class="btn" href="https://explorer.solana.com/address/Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc?cluster=devnet" target="_blank" rel="noopener">TRACE token on Explorer ↗</a>
+      </div>
+    </section>
+
+    <h2>Try it in 3 minutes</h2>
+    <div class="card">
+      <ol>
+        <li><strong>Install.</strong> Download and unzip the extension, open <code>chrome://extensions</code>, turn on <em>Developer mode</em> and click <em>Load unpacked</em> on the unzipped folder.</li>
+        <li><strong>Consent.</strong> A welcome tab explains exactly what is shared. Accept and confirm Chrome's history permission: the first sync uploads up to 90 days of history.</li>
+        <li><strong>Set Phantom to Devnet.</strong> Phantom → Settings → Developer settings → turn on <em>Testnet mode</em> and pick <em>Solana Devnet</em>.</li>
+        <li><strong>Link your wallet.</strong> In the extension popup click <em>Collega con Phantom</em> and sign the message. Signing is free and moves no funds.</li>
+        <li><strong>Get paid.</strong> If your history has at least 7 active days, 500 TRACE land in your wallet within seconds, with a link to the transaction.</li>
+      </ol>
+      <p class="muted" style="margin-top:12px">The extension UI is in Italian for now; the steps above match its buttons.</p>
+    </div>
+
+    <h2>How rewards work</h2>
+    <div class="grid">
+      <div class="card stat"><strong>1,000,000,000</strong><span>fixed supply, mint authority revoked</span></div>
+      <div class="card stat"><strong>500M</strong><span>reward pool, paid out weekly</span></div>
+      <div class="card stat"><strong>500 TRACE</strong><span>welcome bonus, sent instantly</span></div>
+    </div>
+    <div class="card">
+      <ul>
+        <li><strong>Points</strong> = unique pages (capped at 1,000) + 100 per active day (a day with at least 5 visits). Max 1,700 per week. A script that opens thousands of URLs gains nothing past the cap.</li>
+        <li><strong>Weekly budget</strong> starts at 5M TRACE and shrinks 1% every week: the sum of all budgets is exactly the 500M pool, so it never runs dry.</li>
+        <li><strong>Fair split</strong>: each week's budget is shared in proportion to points, capped at 1 TRACE per point. Unused budget stays in the pool.</li>
+        <li><strong>Paid after the week closes</strong>, automatically, by a daily job. Every payout links to its Solana transaction.</li>
+      </ul>
+    </div>
+
+    <h2>Why Solana</h2>
+    <div class="card">
+      <p>Rewards are tiny and frequent: they only make sense if a transfer costs a fraction of a cent and settles in seconds. Users receive a real token they own in their own wallet, with a public, fixed supply anyone can verify, instead of points in a database we control.</p>
+    </div>
+
+    <h2>Privacy by design</h2>
+    <div class="card">
+      <ul>
+        <li>Nothing is shared without explicit consent; the history permission is optional and revocable at any time.</li>
+        <li>Local files, browser-internal pages, localhost and private-network addresses never leave the browser.</li>
+        <li>Wallets are linked by signature, and a linked wallet can only be changed by signing with it: knowing someone's device ID is not enough to redirect their rewards.</li>
+        <li>One click deletes all your data from the server.</li>
+      </ul>
+    </div>
+
+    <h2>On-chain (Solana Devnet)</h2>
+    <div class="card">
+      <dl>
+        <dt>Token (Token-2022)</dt>
+        <dd><a href="https://explorer.solana.com/address/Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc?cluster=devnet" target="_blank" rel="noopener"><code>Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc</code></a></dd>
+        <dt>Rewards pool wallet</dt>
+        <dd><a href="https://explorer.solana.com/address/2qz2nKWq5HiqFjS1qSU9nA9CkVjoYQ97UgE3TJ8AVFvv?cluster=devnet" target="_blank" rel="noopener"><code>2qz2nKWq5HiqFjS1qSU9nA9CkVjoYQ97UgE3TJ8AVFvv</code></a></dd>
+        <dt>Reserve wallet</dt>
+        <dd><a href="https://explorer.solana.com/address/AKdB7rwwMM18huUQuifnA1DubfHvhepXme68x1AWNXbQ?cluster=devnet" target="_blank" rel="noopener"><code>AKdB7rwwMM18huUQuifnA1DubfHvhepXme68x1AWNXbQ</code></a></dd>
+        <dt>Metadata</dt>
+        <dd><a href="https://trace-token.vercel.app/metadata.json" target="_blank" rel="noopener"><code>trace-token.vercel.app/metadata.json</code></a></dd>
+      </dl>
+    </div>
+  </main>
+</body>
+</html>

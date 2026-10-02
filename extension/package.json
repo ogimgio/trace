@@ -5,7 +5,8 @@
   "scripts": {
     "build": "tsc && vite build",
     "watch": "vite build --watch",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "package": "npm run build && rm -rf .pkg ../server/public/trace-extension.zip && mkdir .pkg && cp -R dist .pkg/trace-extension && cd .pkg && zip -qr ../../server/public/trace-extension.zip trace-extension && cd .. && rm -rf .pkg"
   },
   "license": "ISC",
   "type": "module",

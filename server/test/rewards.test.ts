@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { after, before, beforeEach, test } from 'node:test';
 import { Keypair, SendTransactionError } from '@solana/web3.js';
-import { openDb } from '../src/db.ts';
+import type { Sql } from '../src/db.ts';
 import { pageKey, scoreVisits } from '../src/rewards/points.ts';
 import { epochBudget, epochRange, toUnits } from '../src/rewards/policy.ts';
-import { distribute, ensureRewardsSchema, grantWelcome, planEpoch, sendPayouts, settleEpoch } from '../src/rewards/settle.ts';
+import { distribute, grantWelcome, planEpoch, readyEpochs, sendPayouts, settleEpoch } from '../src/rewards/settle.ts';
+import { startTestDb } from './db.ts';
 
 const DAY = 86_400_000;
 const D = 6; // decimali
+
+let db: Sql;
+let reset: () => Promise<void>;
+let stop: () => Promise<void>;
+before(async () => ({ sql: db, reset, stop } = await startTestDb()));
+beforeEach(() => reset());
+after(() => stop());
 
 test('pageKey keeps only public web pages and ignores query/fragment', () => {
   assert.equal(pageKey('https://Example.com/a/b/?q=1#top'), 'example.com/a/b');
@@ -49,32 +57,31 @@ test('distribute is proportional, capped per point and never exceeds the budget'
   assert.deepEqual(distribute(1000n, [], 1n), []);
 });
 
-function seed() {
-  const db = openDb(':memory:');
-  ensureRewardsSchema(db);
+async function seed() {
   const { startsAt } = epochRange(0);
   const wallets = { a: Keypair.generate().publicKey.toBase58(), b: Keypair.generate().publicKey.toBase58() };
-  const addDevice = db.prepare('INSERT INTO devices (id, created_at, wallet_address) VALUES (?, 0, ?)');
-  addDevice.run('dev-a', wallets.a);
-  addDevice.run('dev-b', wallets.b);
-  addDevice.run('dev-nowallet', null);
-  const addVisit = db.prepare("INSERT INTO visits (device_id, visit_id, url, visit_time, received_at) VALUES (?, ?, ?, ?, 0)");
-  let id = 0;
+  await db`INSERT INTO devices ${db([
+    { id: 'dev-a', created_at: 0, wallet_address: wallets.a },
+    { id: 'dev-b', created_at: 0, wallet_address: wallets.b },
+    { id: 'dev-nowallet', created_at: 0, wallet_address: null },
+  ])}`;
+  const rows: Record<string, unknown>[] = [];
   const browse = (device: string, days: number, pagesPerDay: number, from = startsAt) => {
     for (let d = 0; d < days; d++) for (let i = 0; i < pagesPerDay; i++) {
-      addVisit.run(device, String(id++), `https://${device}.com/${d}/${i}`, from + d * DAY + i);
+      rows.push({ device_id: device, visit_id: String(rows.length), url: `https://${device}.com/${d}/${i}`, visit_time: from + d * DAY + i, received_at: 0 });
     }
   };
   browse('dev-a', 7, 20); // 140 pagine + 700 = 840 punti
   browse('dev-b', 2, 10); // 20 pagine + 200 = 220 punti, solo 2 giorni attivi
   browse('dev-nowallet', 7, 20);
   browse('dev-b', 7, 10, startsAt - 7 * DAY); // storico prima dell'epoch 0: 7 giorni attivi → bonus
-  return { db, wallets, afterEpoch0: epochRange(0).endsAt + 9 * DAY };
+  await db`INSERT INTO visits ${db(rows)}`;
+  return { wallets, afterEpoch0: epochRange(0).endsAt + 9 * DAY };
 }
 
-test('settleEpoch pays devices with a wallet, adds the welcome bonus once, and is final', () => {
-  const { db, wallets, afterEpoch0 } = seed();
-  const plan = settleEpoch(db, 0, D, afterEpoch0);
+test('settleEpoch pays devices with a wallet, adds the welcome bonus once, and is final', async () => {
+  const { wallets, afterEpoch0 } = await seed();
+  const plan = await settleEpoch(db, 0, D, afterEpoch0);
 
   assert.equal(plan.totalPoints, 840 + 220);
   const byKey = Object.fromEntries(plan.payouts.map((p) => [`${p.deviceId}:${p.kind}`, p]));
@@ -86,24 +93,27 @@ test('settleEpoch pays devices with a wallet, adds the welcome bonus once, and i
   assert.equal(byKey['dev-b:welcome'].amount, toUnits(500n, D));
   assert.equal(byKey['dev-a:weekly'].wallet, wallets.a);
 
-  const rows = db.prepare("SELECT COUNT(*) AS n FROM reward_payouts WHERE status = 'pending'").get() as { n: number };
+  const [rows] = await db`SELECT COUNT(*) AS n FROM reward_payouts WHERE status = 'pending'`;
   assert.equal(rows.n, 4);
-  assert.throws(() => settleEpoch(db, 0, D, afterEpoch0), /already settled/);
+  await assert.rejects(settleEpoch(db, 0, D, afterEpoch0), /already settled/);
+  assert.deepEqual(await readyEpochs(db, afterEpoch0), []);
   // Il bonus non viene ripetuto la settimana dopo
-  assert.ok(!planEpoch(db, 1, D).payouts.some((p) => p.kind === 'welcome'));
+  assert.ok(!(await planEpoch(db, 1, D)).payouts.some((p) => p.kind === 'welcome'));
 });
 
-test('settleEpoch refuses weeks that are not over (or within the grace period)', () => {
-  const { db } = seed();
+test('settleEpoch refuses weeks that are not over (or within the grace period)', async () => {
+  await seed();
   const { endsAt } = epochRange(0);
-  assert.throws(() => settleEpoch(db, 0, D, endsAt - 1, { ignoreGrace: true }), /cannot be settled/);
-  assert.throws(() => settleEpoch(db, 0, D, endsAt + DAY), /cannot be settled/);
-  assert.doesNotThrow(() => settleEpoch(db, 0, D, endsAt + DAY, { ignoreGrace: true }));
+  await assert.rejects(settleEpoch(db, 0, D, endsAt - 1, { ignoreGrace: true }), /cannot be settled/);
+  await assert.rejects(settleEpoch(db, 0, D, endsAt + DAY), /cannot be settled/);
+  assert.deepEqual(await readyEpochs(db, endsAt + DAY), []);
+  assert.deepEqual(await readyEpochs(db, endsAt + DAY, { ignoreGrace: true }), [0]);
+  await settleEpoch(db, 0, D, endsAt + DAY, { ignoreGrace: true });
 });
 
 test('sendPayouts marks sent, retryable failures, and unknown outcomes separately', async () => {
-  const { db, afterEpoch0 } = seed();
-  settleEpoch(db, 0, D, afterEpoch0);
+  const { afterEpoch0 } = await seed();
+  await settleEpoch(db, 0, D, afterEpoch0);
   let call = 0;
   const rewarder = {
     async send() {
@@ -122,29 +132,29 @@ test('sendPayouts marks sent, retryable failures, and unknown outcomes separatel
   assert.deepEqual(retried.map((r) => r.status), ['sent']);
 });
 
-test('welcome bonus is granted once per device and once per wallet', () => {
-  const { db, wallets, afterEpoch0 } = seed();
+test('welcome bonus is granted once per device and once per wallet', async () => {
+  const { wallets, afterEpoch0 } = await seed();
   // dev-a ha 7 giorni attivi: bonus subito
-  const row = grantWelcome(db, 'dev-a', wallets.a, D, afterEpoch0);
+  const row = await grantWelcome(db, 'dev-a', wallets.a, D, afterEpoch0);
   assert.equal(row?.status, 'pending');
   assert.equal(row?.amount, toUnits(500n, D).toString());
-  assert.equal(grantWelcome(db, 'dev-a', wallets.a, D, afterEpoch0), null);
+  assert.equal(await grantWelcome(db, 'dev-a', wallets.a, D, afterEpoch0), null);
   // Lo stesso wallet su un altro device non prende un secondo bonus
-  assert.equal(grantWelcome(db, 'dev-nowallet', wallets.a, D, afterEpoch0), null);
+  assert.equal(await grantWelcome(db, 'dev-nowallet', wallets.a, D, afterEpoch0), null);
   // E la chiusura della settimana non lo ripaga
-  assert.ok(!planEpoch(db, 0, D).payouts.some((p) => p.deviceId === 'dev-a' && p.kind === 'welcome'));
+  assert.ok(!(await planEpoch(db, 0, D)).payouts.some((p) => p.deviceId === 'dev-a' && p.kind === 'welcome'));
 });
 
-test('welcome bonus waits for enough history', () => {
-  const { db, wallets } = seed();
+test('welcome bonus waits for enough history', async () => {
+  const { wallets } = await seed();
   const { startsAt } = epochRange(0);
   // A metà della prima settimana dev-a ha solo 3 giorni attivi
-  assert.equal(grantWelcome(db, 'dev-a', wallets.a, D, startsAt + 3 * DAY), null);
+  assert.equal(await grantWelcome(db, 'dev-a', wallets.a, D, startsAt + 3 * DAY), null);
 });
 
 test('concurrent sendPayouts never pay the same row twice', async () => {
-  const { db, afterEpoch0 } = seed();
-  settleEpoch(db, 0, D, afterEpoch0);
+  const { afterEpoch0 } = await seed();
+  await settleEpoch(db, 0, D, afterEpoch0);
   let sends = 0;
   const slow = { send: async () => { sends++; await new Promise((r) => setTimeout(r, 5)); return { signature: `s${sends}`, explorerUrl: '' }; } };
   const [a, b] = await Promise.all([sendPayouts(db, slow), sendPayouts(db, slow)]);

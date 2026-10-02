@@ -1,20 +1,16 @@
 import { Router } from 'express';
-import { resolve } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { Sql } from '../db.ts';
 import { explorerTxUrl, formatUnits, parseWalletAddress, type Rewarder } from '../solana/rewards.ts';
 import {
   MAX_PAGES, MAX_TOKENS_PER_POINT, MIN_VISITS_PER_ACTIVE_DAY, POINTS_PER_ACTIVE_DAY, WELCOME_BONUS,
   SETTLEMENT_GRACE_MS, WELCOME_MIN_ACTIVE_DAYS, epochAt, epochBudget, epochRange,
 } from './policy.ts';
 import { scoreVisits, type ScoredVisit } from './points.ts';
-import { ensureRewardsSchema, grantWelcome, sendPayouts, type PayoutRow } from './settle.ts';
+import { grantWelcome, readyEpochs, sendPayouts, settleEpoch, type PayoutRow } from './settle.ts';
 import {
-  challengeMessage, consumeChallenge, createChallenge, ensureLinkSchema, getChallenge, verifyWalletSignature,
+  challengeMessage, consumeChallenge, createChallenge, getChallenge, verifyWalletSignature,
   type LinkAction,
 } from './link.ts';
-
-const LINK_PAGE = resolve(import.meta.dirname, 'link-page.html');
-const LOGO = resolve(import.meta.dirname, '../../../brand/logo.svg');
 
 export interface RewardsOptions {
   // Senza rewarder (es. nei test, o token non configurato) il bonus resta 'pending' e lo invia `rewards:settle`.
@@ -22,17 +18,19 @@ export interface RewardsOptions {
   decimals?: number;
   symbol?: string;
   now?: () => number;
+  // Protegge /api/cron/settle: Vercel Cron manda "Authorization: Bearer <CRON_SECRET>".
+  cronSecret?: string;
 }
 
-export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, symbol = 'TRACE', now = Date.now }: RewardsOptions = {}) {
-  ensureRewardsSchema(db);
-  ensureLinkSchema(db);
+type Device = { id: string; wallet_address: string | null };
+
+export function createRewardsRouter(
+  sql: Sql, { rewarder, decimals = 6, symbol = 'TRACE', now = Date.now, cronSecret }: RewardsOptions = {},
+) {
   const router = Router();
 
-  const selectDevice = db.prepare('SELECT id, wallet_address FROM devices WHERE id = ?');
-  const updateWallet = db.prepare('UPDATE devices SET wallet_address = ? WHERE id = ?');
-  const selectVisits = db.prepare('SELECT url, visit_time AS visitTime FROM visits WHERE device_id = ? AND visit_time >= ? AND visit_time < ?');
-  const selectPayouts = db.prepare('SELECT * FROM reward_payouts WHERE device_id = ? ORDER BY epoch DESC, id DESC');
+  const getDevice = async (id: string) => (await sql<Device[]>`SELECT id, wallet_address FROM devices WHERE id = ${id}`)[0];
+  const setWallet = (id: string, wallet: string | null) => sql`UPDATE devices SET wallet_address = ${wallet} WHERE id = ${id}`;
 
   const tokens = (units: bigint) => formatUnits(units, decimals);
 
@@ -48,9 +46,9 @@ export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, 
   // --- Collegamento del wallet con firma (vedi link.ts) ---
 
   // L'estensione chiede un codice per collegare un wallet ('link') o scollegare quello attuale ('unlink').
-  router.post('/api/devices/:id/link-challenge', (req, res) => {
+  router.post('/api/devices/:id/link-challenge', async (req, res) => {
     const action: LinkAction = req.body?.action === 'unlink' ? 'unlink' : 'link';
-    const device = selectDevice.get(req.params.id) as { id: string; wallet_address: string | null } | undefined;
+    const device = await getDevice(req.params.id);
     if (!device) {
       res.status(404).json({ error: 'device not found' });
       return;
@@ -63,13 +61,13 @@ export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, 
       res.status(409).json({ error: 'no wallet linked' });
       return;
     }
-    const challenge = createChallenge(db, device.id, action, action === 'unlink' ? device.wallet_address : null, now());
-    res.json({ code: challenge.code, action, expiresAt: challenge.expires_at, url: `/link?code=${challenge.code}` });
+    const challenge = await createChallenge(sql, device.id, action, action === 'unlink' ? device.wallet_address : null, now());
+    res.json({ code: challenge.code, action, expiresAt: challenge.expires_at, url: `/link.html?code=${challenge.code}` });
   });
 
   // Letta dalla pagina /link: cosa firmare.
-  router.get('/api/link/:code', (req, res) => {
-    const challenge = getChallenge(db, req.params.code);
+  router.get('/api/link/:code', async (req, res) => {
+    const challenge = await getChallenge(sql, req.params.code);
     if (!challenge) {
       res.status(404).json({ error: 'unknown code' });
       return;
@@ -87,7 +85,7 @@ export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, 
 
   // La pagina /link manda la firma. Se è valida, collega (e la prima volta invia il bonus) o scollega.
   router.post('/api/link/:code', async (req, res) => {
-    const challenge = getChallenge(db, req.params.code);
+    const challenge = await getChallenge(sql, req.params.code);
     if (!challenge) {
       res.status(404).json({ error: 'unknown code' });
       return;
@@ -106,12 +104,12 @@ export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, 
       res.status(401).json({ error: 'invalid signature' });
       return;
     }
-    if (!consumeChallenge(db, challenge.code, now())) {
+    if (!(await consumeChallenge(sql, challenge.code, now()))) {
       res.status(410).json({ error: 'code already used or expired: start again from the extension' });
       return;
     }
 
-    const device = selectDevice.get(challenge.device_id) as { id: string; wallet_address: string | null } | undefined;
+    const device = await getDevice(challenge.device_id);
     if (!device) {
       res.status(404).json({ error: 'device not found' });
       return;
@@ -122,7 +120,7 @@ export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, 
         res.status(409).json({ error: 'the linked wallet has changed in the meantime' });
         return;
       }
-      updateWallet.run(null, device.id);
+      await setWallet(device.id, null);
       res.json({ action: 'unlink', wallet: null, welcome: null });
       return;
     }
@@ -131,18 +129,16 @@ export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, 
       res.status(409).json({ error: 'a wallet is already linked: unlink it first' });
       return;
     }
-    updateWallet.run(wallet.toBase58(), device.id);
-    let welcome = grantWelcome(db, device.id, wallet.toBase58(), decimals, now());
-    if (welcome && rewarder) welcome = (await sendPayouts(db, rewarder, { ids: [welcome.id] }))[0] ?? welcome;
+    await setWallet(device.id, wallet.toBase58());
+    let welcome = await grantWelcome(sql, device.id, wallet.toBase58(), decimals, now());
+    if (welcome && rewarder) welcome = (await sendPayouts(sql, rewarder, { ids: [welcome.id] }))[0] ?? welcome;
     res.json({ action: 'link', wallet: wallet.toBase58(), welcome: welcome ? payoutJson(welcome) : null });
   });
 
-  // Pagina dove Phantom firma. Phantom non funziona nelle pagine dell'estensione, per questo la serve il server.
-  router.get('/link', (_req, res) => res.sendFile(LINK_PAGE));
-  router.get('/link/logo.svg', (_req, res) => res.sendFile(LOGO));
+  // La pagina dove Phantom firma è public/link.html (Phantom non funziona nelle pagine dell'estensione).
 
-  router.get('/api/devices/:id/rewards', (req, res) => {
-    const device = selectDevice.get(req.params.id) as { id: string; wallet_address: string | null } | undefined;
+  router.get('/api/devices/:id/rewards', async (req, res) => {
+    const device = await getDevice(req.params.id);
     if (!device) {
       res.status(404).json({ error: 'device not found' });
       return;
@@ -150,8 +146,11 @@ export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, 
 
     const epoch = epochAt(now());
     const { startsAt, endsAt } = epochRange(epoch);
-    const score = scoreVisits(selectVisits.all(device.id, startsAt, endsAt) as unknown as ScoredVisit[]);
-    const payouts = selectPayouts.all(device.id) as unknown as PayoutRow[];
+    const score = scoreVisits(await sql<ScoredVisit[]>`
+      SELECT url, visit_time AS "visitTime" FROM visits
+      WHERE device_id = ${device.id} AND visit_time >= ${startsAt} AND visit_time < ${endsAt}
+    `);
+    const payouts = await sql<PayoutRow[]>`SELECT * FROM reward_payouts WHERE device_id = ${device.id} ORDER BY epoch DESC, id DESC`;
     const received = payouts.filter((p) => p.status === 'sent').reduce((a, p) => a + BigInt(p.amount), 0n);
 
     res.json({
@@ -178,6 +177,21 @@ export function createRewardsRouter(db: DatabaseSync, { rewarder, decimals = 6, 
         welcomeMinActiveDays: WELCOME_MIN_ACTIVE_DAYS,
       },
     });
+  });
+
+  // Chiamato ogni giorno da Vercel Cron: chiude le settimane pronte e invia i pagamenti in coda.
+  router.get('/api/cron/settle', async (req, res) => {
+    if (!cronSecret || req.headers.authorization !== `Bearer ${cronSecret}`) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    const settled = [];
+    for (const epoch of await readyEpochs(sql, now())) {
+      const plan = await settleEpoch(sql, epoch, decimals, now());
+      settled.push({ epoch, payouts: plan.payouts.length, totalPoints: plan.totalPoints });
+    }
+    const sent = rewarder ? await sendPayouts(sql, rewarder) : [];
+    res.json({ settled, sent: sent.map((p) => ({ id: p.id, kind: p.kind, status: p.status })) });
   });
 
   return router;

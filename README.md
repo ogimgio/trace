@@ -1,123 +1,146 @@
 # TRACE
 
-Estensione Chrome che, con il consenso esplicito dell'utente, invia la sua cronologia di navigazione a un backend, che la salva. In cambio l'utente riceve ogni settimana TRACE, un token su Solana (devnet).
+**Get paid for the browsing data you choose to share.**
+
+Your browsing history is already collected and monetized by trackers, for free. TRACE is a Chrome extension that lets you share it on your own terms (explicit consent, local filtering, delete anytime) and pays you in **TRACE**, a fixed-supply token on Solana.
+
+- **Live MVP:** https://trace-rewards.vercel.app (download the extension and try it)
+- **Network:** Solana **Devnet**
+- **Token (Token-2022):** [`Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc`](https://explorer.solana.com/address/Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc?cluster=devnet)
+
+## How it works
+
+1. **Consent.** On install a welcome tab explains exactly what is shared. Chrome's `history` permission is optional and only requested when the user clicks *Accept*.
+2. **Local filtering.** Local files, browser-internal pages, `localhost` and private-network addresses never leave the browser.
+3. **Sync.** The first sync uploads the available history (Chrome keeps ~90 days); then new visits every 7 days. Uploads are idempotent (`device_id`, `visit_id`).
+4. **Link a wallet by signature.** The user signs a one-time message with Phantom (free, no transaction). The server verifies the Ed25519 signature and links the wallet. A linked wallet can only be changed by signing with it.
+5. **Get paid.** A 500 TRACE welcome bonus is sent within seconds of linking (if the history has at least 7 active days). After that, rewards are paid weekly.
+
+## Solana integration
+
+| What | How |
+| --- | --- |
+| Token | SPL **Token-2022** mint with on-chain metadata (MetadataPointer + TokenMetadata extensions), 6 decimals |
+| Fixed supply | 1,000,000,000 TRACE minted in a single transaction that also **revokes the mint authority**. No freeze authority. |
+| Allocation | 50% rewards pool (server wallet), 50% reserve (separate wallet the server never uses) |
+| Payouts | `TransferChecked` from the rewards pool; the user's associated token account is created idempotently in the same transaction. The server pays the fees, so users need no SOL. |
+| Wallet linking | Phantom `signMessage`, verified server-side as Ed25519 with the wallet's public key |
+| Metadata | Name, symbol and URI on-chain; logo and description at [trace-token.vercel.app/metadata.json](https://trace-token.vercel.app/metadata.json) |
+
+Libraries: `@solana/web3.js`, `@solana/spl-token`, `@solana/spl-token-metadata`. No custom program is needed: everything uses the standard Token-2022 and Associated Token Account programs.
+
+### Deployment details (Devnet)
+
+| | Address |
+| --- | --- |
+| Token mint | [`Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc`](https://explorer.solana.com/address/Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc?cluster=devnet) |
+| Rewards pool wallet (fee payer, metadata update authority) | [`2qz2nKWq5HiqFjS1qSU9nA9CkVjoYQ97UgE3TJ8AVFvv`](https://explorer.solana.com/address/2qz2nKWq5HiqFjS1qSU9nA9CkVjoYQ97UgE3TJ8AVFvv?cluster=devnet) |
+| Reserve wallet | [`AKdB7rwwMM18huUQuifnA1DubfHvhepXme68x1AWNXbQ`](https://explorer.solana.com/address/AKdB7rwwMM18huUQuifnA1DubfHvhepXme68x1AWNXbQ?cluster=devnet) |
+| Supply minted + mint authority revoked | [tx](https://explorer.solana.com/tx/bMXDcrDogkVibX7oSjschdzwZ3hPumg3ikftUKHWWZCkPUe3NmMwy232ygidYVfpgPYXYfV2ortUUWL3wY8mmak?cluster=devnet) |
+| Example weekly payout | [tx](https://explorer.solana.com/tx/T27iDDMLBi6ksU3RqU5Vtf13Jq9FVCJ1tyV3rgs5HXKKdhRtXcBfZvrbpB4x5hki2p5KyQvbGR6yF5RsyTD2phm?cluster=devnet) |
+| Example welcome bonus | [tx](https://explorer.solana.com/tx/4M8xvdxMZDZKPXXTiNthxcoAWDBghms7oiMXJZ537NbvEoo3vKhVF35kG5yQ8PcwAQxnuoge4P2mhKkEgorR9NfW?cluster=devnet) |
+
+## Rewards
+
+Every week (Monday 00:00 UTC) a fixed budget is split among users in proportion to their points:
+
+- **Points** = min(unique pages, 1000) + 100 × active days (days with at least 5 visits). Max 1,700 per week. A page is domain + path without the query string, so generated URLs (`?q=1`, `?q=2`, …) count once.
+- **Budget** starts at 5,000,000 TRACE and shrinks 1% per week. The sum of all weekly budgets is exactly the 500M pool, so it never runs out.
+- **Cap** of 1 TRACE per point: with few users nobody gets millions; unused budget stays in the pool.
+- **Welcome bonus** of 500 TRACE, once per device and once per wallet, sent instantly when the wallet is linked. Past history is not paid per visit, since it is the easiest to fake.
+- **Settlement** happens after the week ends plus an 8-day grace period (the extension syncs every 7 days). A settled week is final. A daily Vercel Cron job settles and pays automatically.
+- **No double payments:** every payout is claimed with a conditional `UPDATE`, unique indexes guard the welcome bonus, and a payout whose confirmation timed out is held for manual review instead of being retried.
+
+The rules live in [`server/src/rewards/policy.ts`](server/src/rewards/policy.ts).
+
+## Architecture
 
 ```
-extension/   Estensione Chrome (Manifest V3, TypeScript + Vite)
-server/      Backend locale (Node 24 + Express + SQLite integrato in Node) + ricompense Solana
-brand/       Logo, icone e metadati del token, pubblicati su https://trace-token.vercel.app
+extension/   Chrome extension (Manifest V3, TypeScript, Vite)
+server/      API (Node 24, Express) on Vercel + Postgres on Supabase + Solana payouts
+  src/api.ts            visits upload, stats, delete
+  src/rewards/          points, weekly settlement, signed wallet linking, cron
+  src/solana/           token setup, payouts
+  public/               landing page, signing page (link.html), extension zip
+brand/       Logo, icons and token metadata (served at trace-token.vercel.app)
 ```
 
-## Come funziona
+- **Database:** Supabase Postgres. Row Level Security is enabled on every table with no policies, so Supabase's public REST API exposes nothing; only the server (table owner) reads and writes.
+- **Signing page:** Phantom is not injected into extension pages, so the extension opens `/link.html?code=…` on the server, where the user signs.
 
-1. Quando l'estensione viene installata si apre una scheda di benvenuto che spiega cosa viene condiviso.
-2. Se l'utente accetta, viene richiesto il permesso `history`, che è opzionale: senza quel click l'estensione non ha accesso alla cronologia.
-3. Prima sync: viene inviata tutta la cronologia disponibile (Chrome ne conserva circa 90 giorni).
-4. Poi un `chrome.alarms` invia ogni 7 giorni le visite nuove. Se un invio fallisce, si riprova dopo 1 ora.
-5. Il server deduplica su `(device_id, visit_id)`, quindi ripetere un invio non crea duplicati.
-6. Dal popup l'utente può sincronizzare subito, revocare il consenso o cancellare i propri dati dal server.
+## Run it locally
 
-## Avvio
+Requirements: Node 24, a Postgres database (a free Supabase project works), Chrome with Phantom.
 
 ```bash
-# 1. Backend
+# 1. Server
 cd server
 npm install
-npm run dev          # http://127.0.0.1:8787, DB in server/data/history.db
+export DATABASE_URL="postgresql://..."      # or put { "databaseUrl": "..." } in server/.secrets/supabase.json
+npm run db:migrate                           # creates the tables (idempotent)
 
-# 2. Estensione
-cd extension
+# 2. Token on Devnet (once): creates the wallets in server/.secrets/, the mint, the fixed supply
+npm run solana:setup -- --name TRACE --symbol TRACE
+#   if the airdrop fails, fund the printed server wallet at https://faucet.solana.com (Devnet) and rerun
+
+npm run dev                                  # http://127.0.0.1:8787
+
+# 3. Extension, pointed at the local server
+cd ../extension
 npm install
-npm run build        # oppure `npm run watch` mentre sviluppi
+VITE_SERVER_URL=http://localhost:8787 npm run build
 ```
 
-3. Apri `chrome://extensions`, attiva **Modalità sviluppatore**, clicca **Carica estensione non pacchettizzata** e scegli `extension/dist`.
-4. Si apre la scheda di benvenuto: clicca **Accetto e concedo l'accesso** e conferma il dialog di Chrome.
+Then open `chrome://extensions`, enable **Developer mode**, click **Load unpacked** and pick `extension/dist`.
 
-## Test
+### Commands
 
 ```bash
-cd server && npm test
+cd server
+npm test                                    # 26 tests on an in-memory Postgres (PGlite), no setup needed
+npm run rewards:settle -- --dry-run         # what would be paid
+npm run rewards:settle                      # settle finished weeks and send payouts
+npm run rewards:settle -- --ignore-grace    # demo: also settle weeks that ended less than 8 days ago
+npm run solana:reward -- <wallet> 10        # manual transfer from the pool
+npm run solana:setup -- --uri <url>         # update the metadata URI
 ```
 
-Prova manuale della sync periodica: nel popup apri **Impostazioni**, imposta l'intervallo a `1` minuto, naviga un po' e controlla che "Visite sul server" aumenti.
-
-Per guardare i dati salvati:
+### Deploy
 
 ```bash
-sqlite3 server/data/history.db "SELECT datetime(visit_time/1000,'unixepoch'), transition, url FROM visits ORDER BY visit_time DESC LIMIT 20;"
+cd extension && npm run package             # builds and zips the extension into server/public/
+cd ../server && vercel deploy --prod
 ```
 
-Log del service worker: `chrome://extensions` → TRACE → **service worker**.
+Environment variables on Vercel:
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | Supabase pooler URL (transaction mode, port 6543) |
+| `SERVER_WALLET` | JSON array of the server wallet's secret key (`server/.secrets/server-wallet.json`) |
+| `MINT_ADDRESS`, `MINT_DECIMALS` | from `server/.secrets/token.json` |
+| `CRON_SECRET` | random string; Vercel Cron sends it to `/api/cron/settle` |
+| `SOLANA_RPC_URL` | optional, defaults to the public Devnet RPC |
+
+`server/.secrets/` is git-ignored and never deployed: without it you lose access to the reward pool.
 
 ## API
 
-| Metodo | Path | Descrizione |
+| Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/api/visits` | `{ deviceId, visits[] }`, max 5000 visite per richiesta, restituisce `{ received, inserted }` |
-| `GET` | `/api/devices/:id/stats` | Totale visite, prima e ultima visita, ultima sync |
-| `DELETE` | `/api/devices/:id` | Cancella il device e tutte le sue visite |
+| `POST` | `/api/visits` | `{ deviceId, visits[] }`, max 5000 per request; returns `{ received, inserted, skipped }` |
+| `GET` | `/api/devices/:id/stats` | Total visits, first and last visit, last sync |
+| `DELETE` | `/api/devices/:id` | Deletes the device and all its visits |
+| `GET` | `/api/devices/:id/rewards` | Current week's points, payout history with Explorer links, rules |
+| `POST` | `/api/devices/:id/link-challenge` | `{ action: 'link' \| 'unlink' }`: one-time code (10 min) and signing page URL |
+| `GET` | `/api/link/:code` | Message to sign and code status (`valid`, `used`, `expired`) |
+| `POST` | `/api/link/:code` | `{ wallet, signature }` (base64 Ed25519): verifies and links or unlinks; on first link returns the welcome payout |
+| `GET` | `/api/cron/settle` | Settles finished weeks and sends pending payouts (requires `Authorization: Bearer $CRON_SECRET`) |
 
-## Limiti noti (da risolvere prima della produzione)
+## Known limitations and next steps
 
-- **Nessuna autenticazione.** Il `deviceId` fa da segreto: chi lo conosce può leggere le statistiche o cancellare i dati. Per questo il server ascolta solo su `127.0.0.1`. Con Solana il device verrà legato a un wallet tramite firma.
-- Per cambiare l'URL del server bisogna aggiornare sia `VITE_SERVER_URL` sia `host_permissions` in `extension/public/manifest.json`.
-- Per pubblicare sul Chrome Web Store servono una privacy policy e la dichiarazione dell'uso dei dati, perché la cronologia è un dato sensibile.
-
-## Token TRACE e ricompense (Solana devnet)
-
-Token-2022 con metadati on-chain, 6 decimali, **supply fissa di 1.000.000.000 TRACE**: il setup crea tutta la supply in una sola transazione e revoca subito la mint authority, quindi nessuno può crearne altri.
-
-| Quota | Dove sta |
-| --- | --- |
-| 50% fondo ricompense | wallet del server (`server/.secrets/server-wallet.json`), che paga anche le fee |
-| 50% riserva (team, progetto, liquidità) | wallet separato (`server/.secrets/reserve-wallet.json`), il server non lo usa |
-
-`server/.secrets/` non va nel repo: senza quei file si perde l'accesso ai token.
-
-### Come si guadagna
-
-Ogni settimana (da lunedì 00:00 UTC) si distribuisce un budget fisso, diviso tra gli utenti in proporzione ai punti:
-
-- **Punti** = min(pagine uniche, 1000) + 100 × giorni attivi (giorni con almeno 5 visite). Massimo 1700 a settimana.
-  Le pagine sono dominio + percorso, senza query: `?q=1`, `?q=2` contano una volta. `file://`, `localhost`, reti private ed estensioni non contano.
-- **Budget**: 5.000.000 TRACE la prima settimana, poi -1% ogni settimana. La somma di tutti i budget è 500M, cioè il fondo ricompense.
-- **Tetto**: al massimo 1 TRACE per punto. Quando gli utenti sono pochi il budget non si esaurisce e il resto rimane nel fondo.
-- **Bonus di benvenuto, subito**: 500 TRACE inviati appena l'utente collega il wallet, se ha almeno 7 giorni attivi di storico. Una volta sola per device e per wallet. Se lo storico non basta ancora, arriva alla prima chiusura settimanale in cui basta. La cronologia passata non viene pagata a visita, perché è la più facile da inventare.
-- **Pagamento a settimana chiusa**, con 8 giorni di margine perché l'estensione sincronizza ogni 7. Una settimana chiusa non viene ricalcolata.
-
-Le regole stanno in `server/src/rewards/policy.ts`.
-
-### Comandi
-
-```bash
-cd server
-npm run solana:setup -- --name TRACE --symbol TRACE   # una volta: wallet, token, supply (rilanciabile)
-npm run solana:setup -- --uri https://.../metadata.json  # aggiorna il link a logo e descrizione
-npm run rewards:settle -- --dry-run                    # cosa verrebbe pagato
-npm run rewards:settle                                 # chiude le settimane pronte e paga
-npm run rewards:settle -- --ignore-grace               # demo: chiude anche settimane finite da poco
-npm run solana:reward -- <wallet> 10                   # invio manuale dal fondo
-```
-
-Se l'airdrop automatico fallisce: https://faucet.solana.com, indirizzo del wallet del server, rete Devnet.
-
-| Metodo | Path | Descrizione |
-| --- | --- | --- |
-| `POST` | `/api/devices/:id/link-challenge` | `{ action: 'link' \| 'unlink' }`, crea un codice monouso (10 minuti) e restituisce l'URL della pagina di firma |
-| `GET` | `/link?code=…` | Pagina dove Phantom firma il messaggio (servita dal server: Phantom non funziona nelle pagine dell'estensione) |
-| `GET` | `/api/link/:code` | Messaggio da firmare e stato del codice (`valid`, `used`, `expired`) |
-| `POST` | `/api/link/:code` | `{ wallet, signature }` (firma Ed25519 in base64): verifica e collega o scollega; al primo collegamento invia subito il bonus e lo restituisce in `welcome` |
-| `GET` | `/api/devices/:id/rewards` | Punti della settimana in corso, storico pagamenti con link a Explorer, regole |
-
-Logo e icone in `brand/` (`logo.svg`, `logo-512.png`, `icons/icon-{16,32,48,128}.png`). La cartella è pubblicata su Vercel (progetto `trace-token`) perché wallet ed explorer leggono logo e descrizione da `https://trace-token.vercel.app/metadata.json`, l'URI salvato on-chain nel token. Per aggiornarla: `cd brand && vercel deploy --prod`. Le icone dell'estensione sono copiate in `extension/public/icons/`.
-
-### Collegamento del wallet con firma
-
-1. Nel popup l'utente clicca **Collega con Phantom**: l'estensione chiede al server un codice monouso e apre `/link?code=…`.
-2. Phantom firma un messaggio che contiene device e codice (gratis, non è una transazione).
-3. Il server verifica la firma Ed25519 con la chiave pubblica del wallet, segna il codice come usato e collega il wallet.
-
-Una volta collegato, **il wallet è bloccato**: per cambiarlo bisogna prima scollegarlo firmando con il wallet attuale. Chi scopre il `deviceId` di un altro non può quindi dirottarne le ricompense.
-
-Limiti noti: la firma dimostra che il wallet è tuo, non che il device è tuo. Il `deviceId` resta l'unica credenziale per inviare cronologia e leggere le statistiche. Le regole valgono per device e per wallet, quindi chi crea molti device e wallet moltiplica i bonus. Prima di mainnet serve un controllo contro gli account multipli.
+- **Device identity.** The signature proves wallet ownership, not device ownership: the random `deviceId` is still the credential for uploading history.
+- **Sybil resistance.** Rules apply per device and per wallet, so many devices and wallets multiply bonuses. Next: proof-of-personhood or stake-weighted limits before mainnet.
+- **Data buyers.** The MVP covers the user side. The next step is the demand side: aggregated, anonymized insights sold to buyers, with revenue funding the reward pool.
+- **Mainnet.** Paying users for personal data has GDPR implications and, in the EU, MiCA implications for the token; both need legal review before launch.
+- **Chrome Web Store** publication requires a privacy policy and a data-use disclosure.

@@ -2,17 +2,21 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
-import { createApp } from '../src/app.ts';
-import { openDb } from '../src/db.ts';
+import { createApp } from '../src/api.ts';
+import { startTestDb } from './db.ts';
 
 let base = '';
-let close: () => void;
+let close: () => Promise<void>;
 
 before(async () => {
-  const server = createApp(openDb(':memory:')).listen(0, '127.0.0.1');
+  const db = await startTestDb();
+  const server = createApp(db.sql).listen(0, '127.0.0.1');
   await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  close = () => server.close();
+  close = async () => {
+    server.close();
+    await db.stop();
+  };
 });
 
 after(() => close());
@@ -82,4 +86,11 @@ test('deleting a device removes its visits', async () => {
 
   const stats = await fetch(`${base}/api/devices/dev-d/stats`);
   assert.equal(stats.status, 404);
+});
+
+test('stores large uploads in chunks and strips NUL characters', async () => {
+  const visits = Array.from({ length: 2500 }, (_, i) => visit(i));
+  visits[0] = { ...visits[0], title: 'a\u0000b' };
+  const res = await upload('dev-big', visits);
+  assert.deepEqual(await res.json(), { received: 2500, inserted: 2500, skipped: 0 });
 });

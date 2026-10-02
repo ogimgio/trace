@@ -3,3 +3,5 @@ dist/
 server/data/
 .DS_Store
 .secrets/
+.pkg/
+server/public/trace-extension.zip

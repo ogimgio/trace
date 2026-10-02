@@ -1,7 +1,7 @@
 {
   "name": "trace-server",
   "version": "1.0.0",
-  "description": "Backend TRACE: riceve la history dall estensione, la salva su SQLite e distribuisce le ricompense",
+  "description": "Backend TRACE: riceve la cronologia dall estensione, la salva su Postgres (Supabase) e distribuisce le ricompense",
   "scripts": {
     "dev": "node --watch src/index.ts",
     "start": "node src/index.ts",
@@ -9,7 +9,8 @@
     "typecheck": "tsc",
     "solana:setup": "node src/solana/setup.ts",
     "solana:reward": "node src/solana/send-reward.ts",
-    "rewards:settle": "node src/rewards/cli.ts"
+    "rewards:settle": "node src/rewards/cli.ts",
+    "db:migrate": "node src/migrate.ts"
   },
   "license": "ISC",
   "type": "module",
@@ -17,12 +18,23 @@
     "@solana/spl-token": "^0.4.15",
     "@solana/spl-token-metadata": "^0.1.6",
     "@solana/web3.js": "^1.99.0",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
     "@types/express": "^5.0.6",
     "@types/node": "^24.19.1",
     "typescript": "^7.0.2"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": "24.x"
+  },
+  "overrides": {
+    "rpc-websockets": {
+      "uuid": "^11.1.0"
+    }
+  }
 }

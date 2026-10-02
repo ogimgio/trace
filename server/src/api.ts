@@ -1,5 +1,6 @@
 import express from 'express';
-import type { DatabaseSync } from 'node:sqlite';
+import { resolve } from 'node:path';
+import type { Sql } from './db.ts';
 import { createRewardsRouter, type RewardsOptions } from './rewards/routes.ts';
 
 export const MAX_VISITS_PER_REQUEST = 5000;
@@ -25,8 +26,11 @@ const MAX_URL_LENGTH = 8192;
 const isString = (v: unknown, max: number): v is string =>
   typeof v === 'string' && v.length > 0 && v.length <= max;
 
+// Postgres non accetta il carattere NUL nei testi.
+const clean = (s: string) => s.replaceAll('\u0000', '');
+
 const optionalString = (v: unknown, max: number): string | null =>
-  typeof v === 'string' ? v.slice(0, max) : null;
+  typeof v === 'string' ? clean(v.slice(0, max)) : null;
 
 function parseVisit(raw: unknown): IncomingVisit | null {
   const v = raw as Record<string, unknown> | null;
@@ -35,7 +39,7 @@ function parseVisit(raw: unknown): IncomingVisit | null {
   if (typeof v.visitTime !== 'number' || !Number.isFinite(v.visitTime)) return null;
   return {
     visitId: v.visitId,
-    url: v.url.slice(0, MAX_URL_LENGTH),
+    url: clean(v.url.slice(0, MAX_URL_LENGTH)),
     title: optionalString(v.title, 1024),
     visitTime: Math.round(v.visitTime),
     transition: optionalString(v.transition, 32),
@@ -57,33 +61,15 @@ function parseUpload(body: unknown): Upload | string {
   return { deviceId, visits: parsed, skipped: visits.length - parsed.length };
 }
 
-export function createApp(db: DatabaseSync, rewards: RewardsOptions = {}) {
+// Visite inserite per singola query (Postgres ha un limite di 65535 parametri per query).
+const INSERT_CHUNK = 1000;
+
+export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
   const app = express();
   app.use(express.json({ limit: '25mb' }));
-
-  const insertDevice = db.prepare(
-    'INSERT INTO devices (id, created_at) VALUES (?, ?) ON CONFLICT(id) DO NOTHING',
-  );
-  const insertVisit = db.prepare(`
-    INSERT INTO visits (device_id, visit_id, url, title, visit_time, transition, referring_visit_id, received_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(device_id, visit_id) DO NOTHING
-  `);
-  const touchDevice = db.prepare('UPDATE devices SET last_sync_at = ? WHERE id = ?');
-  const insertUpload = db.prepare(
-    'INSERT INTO uploads (device_id, received_at, visits_received, visits_inserted) VALUES (?, ?, ?, ?)',
-  );
-  const selectStats = db.prepare(`
-    SELECT d.id, d.created_at, d.last_sync_at,
-           COUNT(v.visit_id) AS total_visits,
-           MIN(v.visit_time) AS first_visit_at,
-           MAX(v.visit_time) AS last_visit_at
-    FROM devices d
-    LEFT JOIN visits v ON v.device_id = d.id
-    WHERE d.id = ?
-    GROUP BY d.id
-  `);
-  const deleteDevice = db.prepare('DELETE FROM devices WHERE id = ?');
+  // In locale; su Vercel public/ è servito direttamente dalla CDN, ma "/" arriva comunque qui.
+  app.use(express.static(resolve(import.meta.dirname, '../public')));
+  app.get('/', (_req, res) => res.redirect(302, '/index.html'));
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true });
@@ -91,7 +77,7 @@ export function createApp(db: DatabaseSync, rewards: RewardsOptions = {}) {
 
   // Riceve un blocco di visite. Le visite già presenti (stesso device + visitId)
   // vengono ignorate, quindi l'estensione può ritentare un invio senza duplicati.
-  app.post('/api/visits', (req, res) => {
+  app.post('/api/visits', async (req, res) => {
     const upload = parseUpload(req.body);
     if (typeof upload === 'string') {
       res.status(400).json({ error: upload });
@@ -99,29 +85,49 @@ export function createApp(db: DatabaseSync, rewards: RewardsOptions = {}) {
     }
 
     const now = Date.now();
-    let inserted = 0;
-    db.exec('BEGIN');
-    try {
-      insertDevice.run(upload.deviceId, now);
-      for (const v of upload.visits) {
-        const result = insertVisit.run(
-          upload.deviceId, v.visitId, v.url, v.title, v.visitTime, v.transition, v.referringVisitId, now,
-        );
-        inserted += Number(result.changes);
+    const rows = upload.visits.map((v) => ({
+      device_id: upload.deviceId,
+      visit_id: v.visitId,
+      url: v.url,
+      title: v.title,
+      visit_time: v.visitTime,
+      transition: v.transition,
+      referring_visit_id: v.referringVisitId,
+      received_at: now,
+    }));
+
+    const inserted = await sql.begin(async (tx) => {
+      await tx`INSERT INTO devices (id, created_at) VALUES (${upload.deviceId}, ${now}) ON CONFLICT (id) DO NOTHING`;
+      let count = 0;
+      for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+        const result = await tx`
+          INSERT INTO visits ${tx(rows.slice(i, i + INSERT_CHUNK))}
+          ON CONFLICT (device_id, visit_id) DO NOTHING
+        `;
+        count += result.count;
       }
-      touchDevice.run(now, upload.deviceId);
-      insertUpload.run(upload.deviceId, now, upload.visits.length + upload.skipped, inserted);
-      db.exec('COMMIT');
-    } catch (err) {
-      db.exec('ROLLBACK');
-      throw err;
-    }
+      await tx`UPDATE devices SET last_sync_at = ${now} WHERE id = ${upload.deviceId}`;
+      await tx`
+        INSERT INTO uploads (device_id, received_at, visits_received, visits_inserted)
+        VALUES (${upload.deviceId}, ${now}, ${upload.visits.length + upload.skipped}, ${count})
+      `;
+      return count;
+    });
 
     res.json({ received: upload.visits.length + upload.skipped, inserted, skipped: upload.skipped });
   });
 
-  app.get('/api/devices/:id/stats', (req, res) => {
-    const row = selectStats.get(req.params.id) as Record<string, number | string | null> | undefined;
+  app.get('/api/devices/:id/stats', async (req, res) => {
+    const [row] = await sql`
+      SELECT d.id, d.created_at, d.last_sync_at,
+             COUNT(v.visit_id) AS total_visits,
+             MIN(v.visit_time) AS first_visit_at,
+             MAX(v.visit_time) AS last_visit_at
+      FROM devices d
+      LEFT JOIN visits v ON v.device_id = d.id
+      WHERE d.id = ${req.params.id}
+      GROUP BY d.id
+    `;
     if (!row) {
       res.status(404).json({ error: 'device not found' });
       return;
@@ -137,12 +143,12 @@ export function createApp(db: DatabaseSync, rewards: RewardsOptions = {}) {
   });
 
   // Cancella il device e (a cascata) tutte le sue visite.
-  app.delete('/api/devices/:id', (req, res) => {
-    const result = deleteDevice.run(req.params.id);
-    res.json({ deleted: Number(result.changes) > 0 });
+  app.delete('/api/devices/:id', async (req, res) => {
+    const result = await sql`DELETE FROM devices WHERE id = ${req.params.id}`;
+    res.json({ deleted: result.count > 0 });
   });
 
-  app.use(createRewardsRouter(db, rewards));
+  app.use(createRewardsRouter(sql, rewards));
 
   return app;
 }
