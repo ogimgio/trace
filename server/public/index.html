@@ -3,115 +3,443 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TRACE</title>
-  <meta name="description" content="TRACE pays you in tokens for the browsing history you choose to share. Built on Solana.">
+  <title>TRACE · Get paid for your browsing history</title>
+  <meta name="description" content="TRACE is a Chrome extension that rewards you in TRACE tokens on Solana for the browsing history you choose to share.">
+  <meta property="og:title" content="TRACE · Get paid for your browsing history">
+  <meta property="og:description" content="Your history is data. Get paid for it, in tokens on Solana.">
+  <meta property="og:image" content="https://trace-token.vercel.app/logo-512.png">
   <link rel="icon" href="/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #ffffff; --fg: #16181d; --muted: #5f6573; --card: #f4f5f7; --border: #e2e4e9;
-      --accent: #7c3aed; --accent-fg: #ffffff; --green: #0f9f6e;
-      color-scheme: light dark;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #090b16; --fg: #ececf1; --muted: #9a9fac; --card: #12152a; --border: #23284a;
-        --accent: #a78bfa; --accent-fg: #0b0d18; --green: #14f195;
-      }
+      --sage: #e4e8dc;
+      --paper: #f7f8f3;
+      --ink: #0e0f14;
+      --ink-soft: #3b3f4a;
+      --muted: #5d6270;
+      --green: #14f195;
+      --green-deep: #0b9e60;
+      --purple: #9945ff;
+      --line: 2.5px solid var(--ink);
+      --shadow: 5px 5px 0 var(--ink);
+      --radius: 18px;
+      --display: 'Space Grotesk', system-ui, sans-serif;
+      --body: 'DM Sans', system-ui, sans-serif;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
-    main { max-width: 760px; margin: 0 auto; padding: 48px 16px 64px; }
-    .hero { text-align: center; padding: 24px 0 40px; }
-    .hero img { width: 112px; height: 112px; }
-    h1 { margin: 12px 0 4px; font-size: 40px; letter-spacing: 0.14em; }
-    .tagline { margin: 0 auto 24px; max-width: 520px; font-size: 19px; color: var(--muted); }
-    .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    .btn { display: inline-block; padding: 12px 20px; border-radius: 10px; font-weight: 600; text-decoration: none;
-           border: 1px solid var(--border); color: var(--fg); background: var(--card); }
-    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-    h2 { margin: 40px 0 12px; font-size: 22px; }
-    p { margin: 0 0 12px; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 12px 0; }
-    ol, ul { margin: 0; padding-left: 22px; }
-    li { margin: 6px 0; }
-    code { font-size: 14px; overflow-wrap: anywhere; }
-    a { color: var(--accent); }
-    .muted { color: var(--muted); }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-    .stat strong { display: block; font-size: 24px; }
-    .stat span { color: var(--muted); font-size: 14px; }
-    dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; }
-    dt { color: var(--muted); }
-    dd { margin: 0; overflow-wrap: anywhere; }
-    @media (max-width: 520px) { dl { grid-template-columns: 1fr; gap: 2px; } dd { margin-bottom: 8px; } h1 { font-size: 32px; } }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--sage); color: var(--ink); font: 17px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; }
+    .wrap { max-width: 1160px; margin: 0 auto; padding: 0 20px; }
+
+    /* Nav */
+    .nav { position: sticky; top: 14px; z-index: 10; padding: 0 20px; }
+    .nav-inner { max-width: 1160px; margin: 0 auto; display: flex; align-items: center; gap: 28px;
+      background: var(--paper); border: var(--line); border-radius: 999px; box-shadow: 0 5px 0 var(--ink); padding: 8px 8px 8px 18px; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 700 20px var(--display); letter-spacing: 0.14em; }
+    .brand img { width: 34px; height: 34px; }
+    .nav-links { display: flex; gap: 22px; margin-right: auto; }
+    .nav-links a { text-decoration: none; font-weight: 500; font-size: 15px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .nav-links a:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+    /* Buttons */
+    .btn { display: inline-flex; align-items: center; gap: 10px; padding: 13px 24px; border: var(--line); border-radius: 999px;
+      font: 700 15px var(--body); text-transform: uppercase; letter-spacing: 0.05em; text-decoration: none; cursor: pointer;
+      background: var(--paper); color: var(--ink); box-shadow: 0 4px 0 var(--ink); transition: transform .12s, box-shadow .12s; }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--ink); }
+    .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+    .btn.green { background: var(--green); }
+    .btn.dark { background: var(--ink); color: var(--paper); box-shadow: 0 4px 0 var(--green-deep); }
+    .nav .btn { padding: 10px 18px; font-size: 13px; }
+
+    /* Hero */
+    .hero { padding: 72px 0 96px; }
+    .hero-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; }
+    .pill { display: inline-flex; align-items: center; gap: 10px; padding: 7px 14px; border: var(--line); border-radius: 999px;
+      background: var(--paper); font-weight: 500; font-size: 14px; }
+    .pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--green); border: 2px solid var(--ink); animation: pulse 1.8s infinite; }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(20, 241, 149, .35); } }
+    h1 { font: 700 clamp(44px, 6.4vw, 84px)/1.0 var(--display); letter-spacing: -0.03em; margin: 22px 0 22px; }
+    mark { background: var(--green); color: var(--ink); padding: 0 .14em; border-radius: 10px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+    .lead { font-size: 20px; color: var(--ink-soft); max-width: 520px; margin: 0 0 30px; }
+    .cta { display: flex; gap: 14px; flex-wrap: wrap; }
+    .hero-art { position: relative; }
+    .hero-art svg { width: 100%; height: auto; }
+    .float { animation: float 5s ease-in-out infinite; transform-origin: center; }
+    @keyframes float { 50% { transform: translateY(-10px); } }
+
+    /* Stats strip */
+    .stats { background: var(--ink); color: var(--paper); border-block: var(--line); }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+    .stat { padding: 30px 20px; border-left: 1px solid #2a2d38; }
+    .stat:first-child { border-left: 0; }
+    .stat strong { display: block; font: 700 clamp(28px, 3.4vw, 42px)/1.1 var(--display); color: var(--green); }
+    .stat span { color: #b8bcc8; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* Sections */
+    section { padding: 96px 0; }
+    .eyebrow { font: 700 14px var(--body); text-transform: uppercase; letter-spacing: 0.12em; color: var(--green-deep); margin: 0 0 12px; }
+    h2 { font: 700 clamp(34px, 4.4vw, 56px)/1.05 var(--display); letter-spacing: -0.02em; margin: 0 0 18px; max-width: 760px; }
+    .section-lead { font-size: 19px; color: var(--ink-soft); max-width: 640px; margin: 0 0 48px; }
+    .card { background: var(--paper); border: var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px; }
+    .light { background: var(--paper); border-block: var(--line); }
+
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .step-num { width: 52px; height: 52px; border: var(--line); border-radius: 50%; display: grid; place-items: center;
+      font: 700 22px var(--display); background: var(--green); margin-bottom: 18px; }
+    .step:nth-child(2) .step-num { background: #cbb3ff; }
+    .step:nth-child(3) .step-num { background: #ffd66b; }
+    .step h3, .feature h3 { font: 700 23px/1.2 var(--display); margin: 0 0 8px; }
+    .step p, .feature p { margin: 0; color: var(--ink-soft); }
+
+    /* Earn */
+    .earn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+    .rules { display: grid; gap: 16px; }
+    .rule { display: flex; gap: 16px; align-items: flex-start; }
+    .rule-icon { flex: none; width: 44px; height: 44px; border: var(--line); border-radius: 12px; display: grid; place-items: center; background: var(--paper); font-size: 20px; }
+    .rule h3 { font: 700 19px var(--display); margin: 0 0 2px; }
+    .rule p { margin: 0; color: var(--ink-soft); font-size: 16px; }
+    .calc h3 { font: 700 24px var(--display); margin: 0 0 4px; }
+    .calc label { display: block; margin-top: 22px; font-weight: 700; }
+    .calc label span { float: right; font-family: var(--display); }
+    input[type=range] { width: 100%; margin-top: 10px; accent-color: var(--ink); height: 28px; }
+    .calc-out { margin-top: 26px; padding: 20px; border: var(--line); border-radius: 14px; background: var(--green); display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
+    .calc-out strong { font: 700 44px/1 var(--display); }
+    .calc-out small { display: block; font-size: 14px; font-weight: 500; }
+    .note { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+
+    /* Install */
+    .install { display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px; align-items: start; }
+    .install ol { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 16px; }
+    .install li { counter-increment: s; display: grid; grid-template-columns: 36px 1fr; gap: 14px; }
+    .install li::before { content: counter(s); width: 36px; height: 36px; border: var(--line); border-radius: 50%; display: grid; place-items: center; font: 700 16px var(--display); background: var(--paper); }
+    code { font: 500 0.88em ui-monospace, SFMono-Regular, Menlo, monospace; background: #e9ecf3; border: 1.5px solid var(--ink); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
+
+    /* Privacy */
+    .features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+    .feature-badge { display: inline-block; font: 700 12px var(--body); text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 10px; border: 2px solid var(--ink); border-radius: 999px; background: var(--green); margin-bottom: 14px; }
+
+    /* On-chain */
+    .chain { background: var(--ink); color: var(--paper); }
+    .chain .eyebrow { color: var(--green); }
+    .chain .section-lead { color: #b8bcc8; }
+    .chain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .chain .card { background: #161822; color: var(--paper); border-color: #3a3f52; box-shadow: 5px 5px 0 var(--green); }
+    .supply-bar { display: flex; height: 54px; border: 2.5px solid var(--paper); border-radius: 12px; overflow: hidden; margin: 18px 0 14px; }
+    .supply-bar div { display: grid; place-items: center; font: 700 15px var(--display); color: var(--ink); }
+    .supply-bar .pool { background: var(--green); flex: 1; }
+    .supply-bar .reserve { background: #cbb3ff; flex: 1; border-left: 2.5px solid var(--paper); }
+    .legend { display: grid; gap: 6px; color: #b8bcc8; font-size: 15px; }
+    .addr { display: grid; gap: 14px; }
+    .addr div span { display: block; color: #8b90a0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .addr a { color: var(--green); text-decoration: none; font: 500 14px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+    .addr a:hover { text-decoration: underline; }
+
+    /* FAQ */
+    .faq { display: grid; gap: 14px; max-width: 860px; }
+    details { background: var(--paper); border: var(--line); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); }
+    summary { cursor: pointer; list-style: none; padding: 20px 56px 20px 22px; font: 700 19px var(--display); position: relative; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: '+'; position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px;
+      border: 2px solid var(--ink); border-radius: 50%; display: grid; place-items: center; font: 700 18px/1 var(--body); }
+    details[open] summary::after { content: '−'; background: var(--green); }
+    details p { margin: 0; padding: 0 22px 20px; color: var(--ink-soft); }
+
+    /* Final CTA + footer */
+    .final { text-align: center; }
+    .final .card { padding: 56px 28px; background: var(--green); }
+    .final h2 { margin: 0 auto 14px; }
+    .final p { margin: 0 auto 28px; max-width: 560px; font-size: 19px; }
+    footer { border-top: var(--line); background: var(--paper); padding: 36px 0; }
+    .foot { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; font-size: 15px; color: var(--muted); }
+    .foot nav { display: flex; gap: 20px; flex-wrap: wrap; }
+    .foot a { text-decoration: none; }
+    .foot a:hover { text-decoration: underline; }
+
+    @media (max-width: 900px) {
+      .nav-links { display: none; }
+      .nav-inner { justify-content: space-between; }
+      .hero { padding: 48px 0 64px; }
+      .hero-grid, .earn-grid, .install, .chain-grid { grid-template-columns: 1fr; }
+      .hero-art { max-width: 520px; }
+      .steps, .features { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .stat:nth-child(3) { border-left: 0; }
+      .stat { border-top: 1px solid #2a2d38; }
+      section { padding: 72px 0; }
+    }
+    @media (max-width: 480px) {
+      body { font-size: 16px; }
+      .nav .btn { display: none; }
+      .lead { font-size: 18px; }
+      .card { padding: 22px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .float, .pulse { animation: none; }
+      html { scroll-behavior: auto; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <section class="hero">
-      <img src="/logo.svg" alt="TRACE logo">
-      <h1>TRACE</h1>
-      <p class="tagline">Your browsing history is already being harvested for free. TRACE pays you for the part you choose to share, in tokens on Solana.</p>
-      <div class="actions">
-        <a class="btn primary" href="/trace-extension.zip" download>Download the Chrome extension</a>
-        <a class="btn" href="https://explorer.solana.com/address/Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc?cluster=devnet" target="_blank" rel="noopener">TRACE token on Explorer ↗</a>
+  <div class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top"><img src="/logo.svg" alt="">TRACE</a>
+      <nav class="nav-links">
+        <a href="#how">How it works</a>
+        <a href="#earn">Earn</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <a class="btn dark" href="#install">Get the extension</a>
+    </div>
+  </div>
+
+  <header class="hero" id="top">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="pill"><span class="pulse"></span>Live on Solana Devnet</span>
+        <h1>Your history is data. <mark>Get paid</mark> for it.</h1>
+        <p class="lead">TRACE is a Chrome extension that rewards you in TRACE tokens on Solana for the browsing history you choose to share. Your consent, your rules, your rewards.</p>
+        <div class="cta">
+          <a class="btn green" href="/trace-extension.zip" download>Download extension</a>
+          <a class="btn" href="#how">How it works</a>
+        </div>
       </div>
-    </section>
 
-    <h2>Try it in 3 minutes</h2>
-    <div class="card">
-      <ol>
-        <li><strong>Install.</strong> Download and unzip the extension, open <code>chrome://extensions</code>, turn on <em>Developer mode</em> and click <em>Load unpacked</em> on the unzipped folder.</li>
-        <li><strong>Consent.</strong> A welcome tab explains exactly what is shared. Accept and confirm Chrome's history permission: the first sync uploads up to 90 days of history.</li>
-        <li><strong>Set Phantom to Devnet.</strong> Phantom → Settings → Developer settings → turn on <em>Testnet mode</em> and pick <em>Solana Devnet</em>.</li>
-        <li><strong>Link your wallet.</strong> In the extension popup click <em>Link with Phantom</em> and sign the message. Signing is free and moves no funds.</li>
-        <li><strong>Get paid.</strong> If your history has at least 7 active days, 500 TRACE land in your wallet within seconds, with a link to the transaction.</li>
-      </ol>
+      <div class="hero-art" aria-hidden="true">
+        <svg viewBox="0 0 560 500" fill="none" stroke="#0e0f14" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="300" cy="250" r="220" fill="#d3dccb" stroke="none"/>
+          <!-- browser window -->
+          <g class="float">
+            <rect x="40" y="70" width="340" height="250" rx="20" fill="#f7f8f3"/>
+            <path d="M40 116 H380" />
+            <path d="M60 70 h300 a20 20 0 0 1 20 20 v26 H40 v-26 a20 20 0 0 1 20 -20 z" fill="#14f195"/>
+            <circle cx="66" cy="93" r="6" fill="#f7f8f3"/>
+            <circle cx="88" cy="93" r="6" fill="#f7f8f3"/>
+            <circle cx="110" cy="93" r="6" fill="#f7f8f3"/>
+            <rect x="136" y="82" width="200" height="22" rx="11" fill="#f7f8f3" stroke-width="3.5"/>
+            <!-- visited pages -->
+            <rect x="66" y="140" width="130" height="74" rx="10" fill="#cbb3ff" stroke-width="4"/>
+            <path d="M82 162 h80 M82 180 h96 M82 196 h56" stroke-width="4"/>
+            <rect x="214" y="140" width="140" height="74" rx="10" fill="#ffd66b" stroke-width="4"/>
+            <path d="M230 162 h86 M230 180 h104 M230 196 h64" stroke-width="4"/>
+            <rect x="66" y="232" width="288" height="64" rx="10" fill="#e4e8dc" stroke-width="4"/>
+            <path d="M82 254 h180 M82 274 h230" stroke-width="4"/>
+            <!-- cursor -->
+            <path d="M300 240 l0 50 l13 -12 l10 22 l11 -5 l-10 -21 l18 -2 z" fill="#f7f8f3" stroke-width="4"/>
+          </g>
+          <!-- the trail: visits flowing into tokens -->
+          <circle cx="400" cy="250" r="7" fill="#9945ff" stroke-width="3.5"/>
+          <circle cx="424" cy="282" r="9" fill="#9945ff" stroke-width="3.5"/>
+          <circle cx="440" cy="318" r="11" fill="#14f195" stroke-width="3.5"/>
+          <!-- coin stack -->
+          <ellipse cx="452" cy="452" rx="70" ry="18" fill="#0e0f14" stroke="none" opacity=".15"/>
+          <path d="M386 430 v-16 a66 17 0 0 0 132 0 v16 a66 17 0 0 1 -132 0 z" fill="#0b9e60"/>
+          <ellipse cx="452" cy="414" rx="66" ry="17" fill="#14f195"/>
+          <path d="M392 404 v-14 a60 15 0 0 0 120 0 v14 a60 15 0 0 1 -120 0 z" fill="#0b9e60"/>
+          <ellipse cx="452" cy="390" rx="60" ry="15" fill="#14f195"/>
+          <!-- big coin -->
+          <g class="float" style="animation-delay:-2.5s">
+            <circle cx="456" cy="330" r="58" fill="#14f195"/>
+            <circle cx="456" cy="330" r="42" stroke-width="3.5"/>
+            <path d="M434 312 h44 M456 312 v40" stroke-width="8"/>
+          </g>
+          <!-- sparkles -->
+          <path d="M500 140 l6 16 l16 6 l-16 6 l-6 16 l-6 -16 l-16 -6 l16 -6 z" fill="#ffd66b" stroke-width="3.5"/>
+          <path d="M40 380 l4 11 l11 4 l-11 4 l-4 11 l-4 -11 l-11 -4 l11 -4 z" fill="#cbb3ff" stroke-width="3"/>
+        </svg>
+      </div>
     </div>
+  </header>
 
-    <h2>How rewards work</h2>
-    <div class="grid">
-      <div class="card stat"><strong>1,000,000,000</strong><span>fixed supply, mint authority revoked</span></div>
-      <div class="card stat"><strong>500M</strong><span>reward pool, paid out weekly</span></div>
-      <div class="card stat"><strong>500 TRACE</strong><span>welcome bonus, sent instantly</span></div>
+  <div class="stats" id="stats">
+    <div class="wrap stats-grid">
+      <div class="stat"><strong data-stat="visitsShared">—</strong><span>Visits shared</span></div>
+      <div class="stat"><strong data-stat="tokensPaid">—</strong><span>TRACE paid out</span></div>
+      <div class="stat"><strong data-stat="devices">—</strong><span>Devices sharing</span></div>
+      <div class="stat"><strong>1B</strong><span>Fixed supply</span></div>
     </div>
-    <div class="card">
-      <ul>
-        <li><strong>Points</strong> = unique pages (capped at 1,000) + 100 per active day (a day with at least 5 visits). Max 1,700 per week. A script that opens thousands of URLs gains nothing past the cap.</li>
-        <li><strong>Weekly budget</strong> starts at 5M TRACE and shrinks 1% every week: the sum of all budgets is exactly the 500M pool, so it never runs dry.</li>
-        <li><strong>Fair split</strong>: each week's budget is shared in proportion to points, capped at 1 TRACE per point. Unused budget stays in the pool.</li>
-        <li><strong>Paid after the week closes</strong>, automatically, by a daily job. Every payout links to its Solana transaction.</li>
-      </ul>
-    </div>
+  </div>
 
-    <h2>Why Solana</h2>
-    <div class="card">
-      <p>Rewards are tiny and frequent: they only make sense if a transfer costs a fraction of a cent and settles in seconds. Users receive a real token they own in their own wallet, with a public, fixed supply anyone can verify, instead of points in a database we control.</p>
+  <section id="how">
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2>Browse like always. Get paid every week.</h2>
+      <p class="section-lead">Trackers already collect your browsing history for free. TRACE flips that: you decide what to share, and you get the rewards.</p>
+      <div class="steps">
+        <div class="card step">
+          <div class="step-num">1</div>
+          <h3>Install and consent</h3>
+          <p>Add the extension. A welcome page shows exactly what is shared. Nothing leaves your browser until you click accept.</p>
+        </div>
+        <div class="card step">
+          <div class="step-num">2</div>
+          <h3>Link your wallet</h3>
+          <p>Sign one message with Phantom to prove the wallet is yours. It's free, moves no funds, and unlocks a 500 TRACE welcome bonus right away.</p>
+        </div>
+        <div class="card step">
+          <div class="step-num">3</div>
+          <h3>Earn every week</h3>
+          <p>New visits sync in the background. Each week your points turn into TRACE, sent straight to your wallet with a public transaction.</p>
+        </div>
+      </div>
     </div>
+  </section>
 
-    <h2>Privacy by design</h2>
-    <div class="card">
-      <ul>
-        <li>Nothing is shared without explicit consent; the history permission is optional and revocable at any time.</li>
-        <li>Local files, browser-internal pages, localhost and private-network addresses never leave the browser.</li>
-        <li>Wallets are linked by signature, and a linked wallet can only be changed by signing with it: knowing someone's device ID is not enough to redirect their rewards.</li>
-        <li>One click deletes all your data from the server.</li>
-      </ul>
-    </div>
+  <section id="earn" class="light">
+    <div class="wrap">
+      <p class="eyebrow">Earn</p>
+      <h2>Simple rules. Built to reward real people, not bots.</h2>
+      <p class="section-lead">A fixed weekly budget is split among everyone in proportion to their points. The rules are public and enforced by the server, and every payout is on-chain.</p>
+      <div class="earn-grid">
+        <div class="rules">
+          <div class="rule"><div class="rule-icon">🌐</div><div><h3>Unique pages count, up to 1,000</h3><p>Domain plus path, without the query string. A script opening thousands of URLs gains nothing past the cap.</p></div></div>
+          <div class="rule"><div class="rule-icon">📅</div><div><h3>+100 points per active day</h3><p>Any day with at least 5 visits. Consistency matters more than volume, and it's hard to fake.</p></div></div>
+          <div class="rule"><div class="rule-icon">🎁</div><div><h3>500 TRACE welcome bonus</h3><p>Sent instantly when you link your wallet, if your history has 7 active days. Once per device and per wallet.</p></div></div>
+          <div class="rule"><div class="rule-icon">📉</div><div><h3>A budget that never runs dry</h3><p>5M TRACE in week one, 1% less every week. All weekly budgets add up to exactly the 500M reward pool.</p></div></div>
+        </div>
 
-    <h2>On-chain (Solana Devnet)</h2>
-    <div class="card">
-      <dl>
-        <dt>Token (Token-2022)</dt>
-        <dd><a href="https://explorer.solana.com/address/Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc?cluster=devnet" target="_blank" rel="noopener"><code>Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc</code></a></dd>
-        <dt>Rewards pool wallet</dt>
-        <dd><a href="https://explorer.solana.com/address/2qz2nKWq5HiqFjS1qSU9nA9CkVjoYQ97UgE3TJ8AVFvv?cluster=devnet" target="_blank" rel="noopener"><code>2qz2nKWq5HiqFjS1qSU9nA9CkVjoYQ97UgE3TJ8AVFvv</code></a></dd>
-        <dt>Reserve wallet</dt>
-        <dd><a href="https://explorer.solana.com/address/AKdB7rwwMM18huUQuifnA1DubfHvhepXme68x1AWNXbQ?cluster=devnet" target="_blank" rel="noopener"><code>AKdB7rwwMM18huUQuifnA1DubfHvhepXme68x1AWNXbQ</code></a></dd>
-        <dt>Metadata</dt>
-        <dd><a href="https://trace-token.vercel.app/metadata.json" target="_blank" rel="noopener"><code>trace-token.vercel.app/metadata.json</code></a></dd>
-      </dl>
+        <div class="card calc">
+          <h3>Estimate your weekly rewards</h3>
+          <p class="note" style="margin:0">Move the sliders to match a typical week.</p>
+          <label for="pages">Unique pages visited <span id="pages-out">600</span></label>
+          <input id="pages" type="range" min="0" max="2000" step="10" value="600">
+          <label for="days">Active days <span id="days-out">5</span></label>
+          <input id="days" type="range" min="0" max="7" step="1" value="5">
+          <div class="calc-out">
+            <div><small>Points this week</small><strong id="points-out">1,100</strong></div>
+            <div style="text-align:right"><small>Up to</small><strong id="tokens-out">1,100</strong> <small>TRACE / week</small></div>
+          </div>
+          <p class="note">Each point pays at most 1 TRACE. When many people share, the weekly budget is split proportionally.</p>
+        </div>
+      </div>
     </div>
-  </main>
+  </section>
+
+  <section id="install">
+    <div class="wrap install">
+      <div>
+        <p class="eyebrow">Get started</p>
+        <h2>Install in one minute.</h2>
+        <p class="section-lead">TRACE is not on the Chrome Web Store yet, so you load it directly into Chrome. It takes four clicks.</p>
+        <a class="btn green" href="/trace-extension.zip" download>Download extension (.zip)</a>
+      </div>
+      <div class="card">
+        <ol>
+          <li><div>Unzip <code>trace-extension.zip</code>.</div></li>
+          <li><div>Open <code>chrome://extensions</code> and turn on <strong>Developer mode</strong> (top right).</div></li>
+          <li><div>Click <strong>Load unpacked</strong> and pick the <code>trace-extension</code> folder.</div></li>
+          <li><div>Accept on the welcome page. Your first sync starts right away.</div></li>
+          <li><div>In Phantom, switch to <strong>Solana Devnet</strong> (Settings → Developer settings → Testnet mode), then click <strong>Link with Phantom</strong> in the TRACE popup.</div></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy" class="light">
+    <div class="wrap">
+      <p class="eyebrow">Privacy by design</p>
+      <h2>Your data, on your terms.</h2>
+      <p class="section-lead">Browsing history is personal. TRACE is built so that sharing is always explicit, limited and reversible.</p>
+      <div class="features">
+        <div class="card feature"><span class="feature-badge">Consent first</span><h3>Opt-in, revocable anytime</h3><p>Chrome's history permission is optional and only requested when you accept. Withdraw it with one click.</p></div>
+        <div class="card feature"><span class="feature-badge">Filtered locally</span><h3>Private stuff stays private</h3><p>Local files, browser-internal pages, localhost and private-network addresses never leave your browser.</p></div>
+        <div class="card feature"><span class="feature-badge">Signature-locked</span><h3>Nobody can redirect your rewards</h3><p>Your wallet is linked by signature, and changing it requires a signature from that same wallet.</p></div>
+        <div class="card feature"><span class="feature-badge">Delete anytime</span><h3>Gone means gone</h3><p>One button deletes every visit you've shared from our servers. Payout records stay, because they're public on-chain anyway.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="chain" id="onchain">
+    <div class="wrap">
+      <p class="eyebrow">On-chain</p>
+      <h2>A real token with a fixed supply. Verify everything.</h2>
+      <p class="section-lead">TRACE is a Token-2022 mint on Solana. The whole supply was minted in one transaction that also revoked the mint authority: nobody can ever create more.</p>
+      <div class="chain-grid">
+        <div class="card">
+          <h3 style="font:700 22px var(--display);margin:0">1,000,000,000 TRACE</h3>
+          <div class="supply-bar"><div class="pool">50% rewards</div><div class="reserve">50% reserve</div></div>
+          <div class="legend">
+            <div>Rewards pool: paid out to users week by week.</div>
+            <div>Reserve: team, ecosystem and liquidity, in a separate wallet the server never touches.</div>
+            <div>Transfers cost a fraction of a cent and settle in seconds, so even small weekly rewards make sense.</div>
+          </div>
+        </div>
+        <div class="card addr">
+          <div><span>Token mint</span><a href="https://explorer.solana.com/address/Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc?cluster=devnet" target="_blank" rel="noopener">Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc ↗</a></div>
+          <div><span>Rewards pool wallet</span><a href="https://explorer.solana.com/address/2qz2nKWq5HiqFjS1qSU9nA9CkVjoYQ97UgE3TJ8AVFvv?cluster=devnet" target="_blank" rel="noopener">2qz2nKWq5HiqFjS1qSU9nA9CkVjoYQ97UgE3TJ8AVFvv ↗</a></div>
+          <div><span>Reserve wallet</span><a href="https://explorer.solana.com/address/AKdB7rwwMM18huUQuifnA1DubfHvhepXme68x1AWNXbQ?cluster=devnet" target="_blank" rel="noopener">AKdB7rwwMM18huUQuifnA1DubfHvhepXme68x1AWNXbQ ↗</a></div>
+          <div><span>Fixed supply transaction</span><a href="https://explorer.solana.com/tx/bMXDcrDogkVibX7oSjschdzwZ3hPumg3ikftUKHWWZCkPUe3NmMwy232ygidYVfpgPYXYfV2ortUUWL3wY8mmak?cluster=devnet" target="_blank" rel="noopener">bMXDcrDo…8mmak ↗</a></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap">
+      <p class="eyebrow">FAQ</p>
+      <h2>Questions, answered.</h2>
+      <div class="faq">
+        <details><summary>What exactly is shared?</summary><p>For each visit: the page address and title, the time, and how you got there (link, typed, bookmark). Nothing else: no cookies, no form data, no page content.</p></details>
+        <details><summary>Do I need SOL or crypto experience?</summary><p>No. You only need a Phantom wallet to receive tokens. TRACE pays all transaction fees, and linking your wallet is a free signature, not a transaction.</p></details>
+        <details><summary>Is this real money?</summary><p>Not yet. The MVP runs on Solana Devnet, so TRACE tokens are test tokens with no market value. The mechanics, transactions and fixed supply are real and verifiable on-chain.</p></details>
+        <details><summary>Why Solana?</summary><p>Rewards are small and frequent. They only make sense if a transfer costs a fraction of a cent and settles in seconds, and if you truly own what you earn in your own wallet.</p></details>
+        <details><summary>Can I stop or delete my data?</summary><p>Yes. Withdraw consent from the extension settings at any time, or delete everything you've shared from our servers with one click.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <div class="card">
+        <h2>Start earning from your history.</h2>
+        <p>Install TRACE, link your wallet, and get 500 TRACE right away.</p>
+        <a class="btn dark" href="/trace-extension.zip" download>Download extension</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap foot">
+      <a class="brand" href="#top"><img src="/logo.svg" alt="">TRACE</a>
+      <nav>
+        <a href="#how">How it works</a>
+        <a href="#earn">Earn</a>
+        <a href="#privacy">Privacy</a>
+        <a href="https://github.com/ogimgio/trace" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://explorer.solana.com/address/Gveaq1FkXYNY8CXLBEkdHwgfwzpFrBRr7vTWfJTCQFxc?cluster=devnet" target="_blank" rel="noopener">Explorer</a>
+      </nav>
+      <span>Built on Solana · Devnet MVP</span>
+    </div>
+  </footer>
+
+  <script>
+    const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+
+    // Reward estimate: same formula as the server (min(pages, 1000) + 100 × active days, max 1 TRACE per point).
+    const pages = document.getElementById('pages');
+    const days = document.getElementById('days');
+    function updateCalc() {
+      const points = Math.min(Number(pages.value), 1000) + 100 * Number(days.value);
+      document.getElementById('pages-out').textContent = fmt(pages.value);
+      document.getElementById('days-out').textContent = days.value;
+      document.getElementById('points-out').textContent = fmt(points);
+      document.getElementById('tokens-out').textContent = fmt(points);
+    }
+    pages.addEventListener('input', updateCalc);
+    days.addEventListener('input', updateCalc);
+    updateCalc();
+
+    // Live, aggregate-only numbers from the server.
+    fetch('/api/stats')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((stats) => {
+        for (const el of document.querySelectorAll('[data-stat]')) el.textContent = fmt(stats[el.dataset.stat]);
+      })
+      .catch(() => {});
+  </script>
 </body>
 </html>

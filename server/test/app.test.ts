@@ -94,3 +94,10 @@ test('stores large uploads in chunks and strips NUL characters', async () => {
   const res = await upload('dev-big', visits);
   assert.deepEqual(await res.json(), { received: 2500, inserted: 2500, skipped: 0 });
 });
+
+test('public stats expose only aggregate numbers', async () => {
+  const stats = await (await fetch(`${base}/api/stats`)).json();
+  assert.deepEqual(Object.keys(stats).sort(), ['devices', 'payouts', 'tokensPaid', 'visitsShared']);
+  assert.ok(stats.visitsShared > 0);
+  assert.equal(stats.tokensPaid, '0');
+});

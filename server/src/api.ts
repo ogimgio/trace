@@ -1,6 +1,7 @@
 import express from 'express';
 import { resolve } from 'node:path';
 import type { Sql } from './db.ts';
+import { formatUnits } from './solana/rewards.ts';
 import { createRewardsRouter, type RewardsOptions } from './rewards/routes.ts';
 
 export const MAX_VISITS_PER_REQUEST = 5000;
@@ -73,6 +74,23 @@ export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // Public, aggregate-only numbers for the landing page (no per-user data). Cached for a minute at the CDN.
+  app.get('/api/stats', async (_req, res) => {
+    const [row] = await sql<{ devices: number; visits: number; paid: string; payouts: number }[]>`
+      SELECT (SELECT COUNT(*) FROM devices) AS devices,
+             (SELECT COUNT(*) FROM visits) AS visits,
+             (SELECT COALESCE(SUM(amount), 0) FROM reward_payouts WHERE status = 'sent') AS paid,
+             (SELECT COUNT(*) FROM reward_payouts WHERE status = 'sent') AS payouts
+    `;
+    res.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    res.json({
+      devices: row.devices,
+      visitsShared: row.visits,
+      payouts: row.payouts,
+      tokensPaid: formatUnits(BigInt(row.paid), rewards.decimals ?? 6),
+    });
   });
 
   // Receives a batch of visits. Visits already stored (same device + visitId)
