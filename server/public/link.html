@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TRACE · Collega wallet</title>
+  <title>TRACE · Link wallet</title>
   <link rel="icon" href="/logo.svg">
   <style>
     :root {
@@ -56,7 +56,7 @@
     };
     const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 
-    // Phantom (e i wallet compatibili) espongono un provider con connect() e signMessage().
+    // Phantom (and compatible wallets) expose a provider with connect() and signMessage().
     const provider = () => window.phantom?.solana ?? (window.solana?.signMessage ? window.solana : null);
 
     const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
@@ -64,26 +64,26 @@
     async function load() {
       const res = await fetch(`/api/link/${encodeURIComponent(code)}`);
       if (!res.ok) {
-        app.replaceChildren(el('div', { className: 'card' }, el('p', { className: 'error', textContent: 'Link non valido. Riparti dall\'estensione TRACE.' })));
+        app.replaceChildren(el('div', { className: 'card' }, el('p', { className: 'error', textContent: 'Invalid link. Start again from the TRACE extension.' })));
         return;
       }
       const challenge = await res.json();
       if (challenge.status !== 'valid') {
-        const text = challenge.status === 'used' ? 'Questo link è già stato usato.' : 'Questo link è scaduto.';
-        app.replaceChildren(el('div', { className: 'card' }, el('p', { textContent: `${text} Riparti dall'estensione TRACE.` })));
+        const text = challenge.status === 'used' ? 'This link has already been used.' : 'This link has expired.';
+        app.replaceChildren(el('div', { className: 'card' }, el('p', { textContent: `${text} Start again from the TRACE extension.` })));
         return;
       }
 
       const linking = challenge.action === 'link';
-      const button = el('button', { textContent: linking ? 'Collega Phantom e firma' : `Firma con ${short(challenge.wallet)} e scollega` });
+      const button = el('button', { textContent: linking ? 'Connect Phantom and sign' : `Sign with ${short(challenge.wallet)} and unlink` });
       app.replaceChildren(
         el('div', { className: 'card' },
-          el('h2', { textContent: linking ? 'Collega il tuo wallet Solana' : 'Scollega il wallet' }),
+          el('h2', { textContent: linking ? 'Link your Solana wallet' : 'Unlink wallet' }),
           el('p', { textContent: linking
-            ? 'Firma un messaggio con Phantom per dimostrare che il wallet è tuo. Le ricompense TRACE arriveranno lì.'
-            : 'Per sicurezza solo il wallet collegato può scollegarsi. In Phantom seleziona questo account:' }),
+            ? 'Sign a message with Phantom to prove the wallet is yours. Your TRACE rewards will be sent there.'
+            : 'For security, only the linked wallet can unlink itself. Select this account in Phantom:' }),
           ...(linking ? [] : [el('p', {}, el('code', { textContent: challenge.wallet }))]),
-          el('p', { className: 'muted', textContent: 'Firmare è gratis e non sposta fondi. Questo è il messaggio:' }),
+          el('p', { className: 'muted', textContent: 'Signing is free and moves no funds. This is the message:' }),
           el('pre', { textContent: challenge.message }),
         ),
         button,
@@ -92,7 +92,7 @@
       button.addEventListener('click', async () => {
         const wallet = provider();
         if (!wallet) {
-          show('Phantom non trovato. Installalo da phantom.app, poi ricarica questa pagina.');
+          show('Phantom not found. Install it from phantom.app, then reload this page.');
           return;
         }
         button.disabled = true;
@@ -101,7 +101,7 @@
           const { publicKey } = await wallet.connect();
           const address = publicKey.toString();
           if (!linking && address !== challenge.wallet) {
-            throw new Error(`In Phantom è selezionato ${short(address)}: passa all'account ${short(challenge.wallet)} e riprova.`);
+            throw new Error(`Phantom has ${short(address)} selected: switch to account ${short(challenge.wallet)} and try again.`);
           }
           const { signature } = await wallet.signMessage(new TextEncoder().encode(challenge.message), 'utf8');
           const res = await fetch(`/api/link/${encodeURIComponent(code)}`, {
@@ -110,12 +110,12 @@
             body: JSON.stringify({ wallet: address, signature: toBase64(signature) }),
           });
           const body = await res.json();
-          if (!res.ok) throw new Error(body.error ?? `Errore ${res.status}`);
+          if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
           done(body);
         } catch (err) {
           button.disabled = false;
-          // 4001 = l'utente ha rifiutato in Phantom
-          show(err?.code === 4001 ? 'Firma annullata.' : String(err?.message ?? err));
+          // 4001 = the user rejected the request in Phantom
+          show(err?.code === 4001 ? 'Signature cancelled.' : String(err?.message ?? err));
         }
       });
     }
@@ -123,26 +123,26 @@
     function done(result) {
       if (result.action === 'unlink') {
         app.replaceChildren(el('div', { className: 'card' },
-          el('h2', { className: 'ok', textContent: 'Wallet scollegato' }),
-          el('p', { textContent: 'Ora puoi collegarne un altro dall\'estensione TRACE. Puoi chiudere questa scheda.' })));
+          el('h2', { className: 'ok', textContent: 'Wallet unlinked' }),
+          el('p', { textContent: 'You can now link another one from the TRACE extension. You can close this tab.' })));
         return;
       }
       const lines = [
-        el('h2', { className: 'ok', textContent: 'Wallet collegato' }),
+        el('h2', { className: 'ok', textContent: 'Wallet linked' }),
         el('p', {}, el('code', { textContent: result.wallet })),
       ];
       const w = result.welcome;
       if (w?.status === 'sent') {
-        lines.push(el('p', { textContent: `Benvenuto! Ti abbiamo inviato ${w.amount} TRACE. ` },
-          el('a', { href: w.explorerUrl, target: '_blank', rel: 'noopener', textContent: 'Vedi la transazione ↗' })));
+        lines.push(el('p', { textContent: `Welcome! We just sent you ${w.amount} TRACE. ` },
+          el('a', { href: w.explorerUrl, target: '_blank', rel: 'noopener', textContent: 'View transaction ↗' })));
       } else if (w) {
-        lines.push(el('p', { textContent: `Il bonus di benvenuto di ${w.amount} TRACE è in coda e arriverà a breve.` }));
+        lines.push(el('p', { textContent: `Your ${w.amount} TRACE welcome bonus is queued and will arrive shortly.` }));
       }
-      lines.push(el('p', { className: 'muted', textContent: 'Puoi chiudere questa scheda: punti e pagamenti sono nell\'estensione.' }));
+      lines.push(el('p', { className: 'muted', textContent: 'You can close this tab: points and payouts are in the extension.' }));
       app.replaceChildren(el('div', { className: 'card' }, ...lines));
     }
 
-    load().catch(() => show('Server non raggiungibile.'));
+    load().catch(() => show('Server unreachable.'));
   </script>
 </body>
 </html>

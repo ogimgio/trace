@@ -1,7 +1,7 @@
 {
   "name": "trace-extension",
   "version": "1.0.0",
-  "description": "Estensione Chrome: condivisione consensuale della history",
+  "description": "TRACE Chrome extension: consent-based browsing history sharing with Solana rewards",
   "scripts": {
     "build": "tsc && vite build",
     "watch": "vite build --watch",

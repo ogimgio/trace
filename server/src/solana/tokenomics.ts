@@ -1,9 +1,9 @@
-// Supply fissa: tutti i token vengono creati una volta sola dal setup, poi il permesso di
-// crearne altri (mint authority) viene revocato per sempre.
-export const TOTAL_SUPPLY = 1_000_000_000n; // in token interi
+// Fixed supply: all tokens are minted once by the setup, then the permission to
+// mint more (mint authority) is revoked forever.
+export const TOTAL_SUPPLY = 1_000_000_000n; // in whole tokens
 
-// Metà va nel fondo ricompense, posseduto dal wallet del server, che lo distribuisce un po' alla volta
-// (vedi rewards/policy.ts). L'altra metà va alla riserva (team, progetto, liquidità), che il server non tocca.
+// Half goes to the rewards pool, held by the server wallet, which distributes it gradually
+// (see rewards/policy.ts). The other half goes to the reserve (team, project, liquidity), which the server never touches.
 export const REWARDS_POOL_SHARE_PERCENT = 50n;
 
 export function allocations(decimals: number) {

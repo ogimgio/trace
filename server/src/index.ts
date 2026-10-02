@@ -4,13 +4,13 @@ import { connect, databaseUrl } from './db.ts';
 import { TOKEN_INFO_PATH, loadSolanaConfig } from './solana/config.ts';
 import { createRewarder } from './solana/rewards.ts';
 
-// Ingresso del server, configurato dall'ambiente. Su Vercel l'export di default diventa la funzione
-// (i file in public/ li serve la CDN); in locale si mette in ascolto su 127.0.0.1.
+// Server entry point, configured from the environment. On Vercel the default export becomes the function
+// (files in public/ are served by the CDN); locally it listens on 127.0.0.1.
 const sql = connect(databaseUrl());
 
-// Con il token configurato, il server invia subito il bonus di benvenuto quando un utente collega il wallet.
+// With the token configured, the server sends the welcome bonus as soon as a user links a wallet.
 const solana = loadSolanaConfig();
-if (!solana) console.warn(`Token non configurato (${TOKEN_INFO_PATH} o variabili d'ambiente): i pagamenti restano in coda.`);
+if (!solana) console.warn(`Token not configured (${TOKEN_INFO_PATH} or environment variables): payouts stay queued.`);
 
 const app = express();
 app.use(createApp(sql, {

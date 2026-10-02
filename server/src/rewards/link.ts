@@ -2,14 +2,14 @@ import { createPublicKey, randomBytes, verify } from 'node:crypto';
 import type { Sql } from '../db.ts';
 import { PublicKey } from '@solana/web3.js';
 
-// Collegamento del wallet con firma.
+// Wallet linking by signature.
 //
-// 1. L'estensione chiede una "challenge" per il suo device: un codice monouso che scade in 10 minuti.
-// 2. Apre /link.html?code=..., una pagina servita da questo server, dove Phantom firma il messaggio della challenge.
-// 3. Il server verifica la firma con la chiave pubblica del wallet: così sa che il wallet è davvero dell'utente.
+// 1. The extension requests a "challenge" for its device: a one-time code that expires in 10 minutes.
+// 2. It opens /link.html?code=..., a page served by this server, where Phantom signs the challenge message.
+// 3. The server verifies the signature with the wallet's public key, which proves the wallet belongs to the user.
 //
-// Una volta collegato, il wallet è bloccato: per cambiarlo serve prima una challenge 'unlink'
-// firmata dal wallet attuale. Chi scopre il deviceId di un altro non può quindi dirottarne le ricompense.
+// Once linked, the wallet is locked: changing it first requires an 'unlink' challenge signed by the
+// current wallet. Someone who learns another user's deviceId therefore cannot redirect their rewards.
 
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 
@@ -19,7 +19,7 @@ export interface Challenge {
   code: string;
   device_id: string;
   action: LinkAction;
-  wallet: string | null; // per 'unlink': il wallet che deve firmare
+  wallet: string | null; // for 'unlink': the wallet that must sign
   expires_at: number;
   used_at: number | null;
 }
@@ -47,7 +47,7 @@ export async function getChallenge(sql: Sql, code: string): Promise<Challenge | 
   return row;
 }
 
-// Segna la challenge come usata solo se è ancora valida: due richieste con lo stesso codice non passano entrambe.
+// Marks the challenge as used only if it is still valid: two requests with the same code can't both succeed.
 export async function consumeChallenge(sql: Sql, code: string, now: number): Promise<boolean> {
   const result = await sql`
     UPDATE wallet_challenges SET used_at = ${now} WHERE code = ${code} AND used_at IS NULL AND expires_at > ${now}
@@ -55,22 +55,24 @@ export async function consumeChallenge(sql: Sql, code: string, now: number): Pro
   return result.count === 1;
 }
 
-// Il testo che l'utente vede in Phantom e firma. Contiene device e codice, quindi la firma non vale per altro.
+// The text the user sees and signs in Phantom. It includes device and code, so the signature is good for nothing else.
 export function challengeMessage(c: Pick<Challenge, 'code' | 'device_id' | 'action' | 'wallet' | 'expires_at'>): string {
-  const action = c.action === 'link' ? 'Collega questo wallet' : `Scollega il wallet ${c.wallet}`;
+  const action = c.action === 'link'
+    ? `Link this wallet to device ${c.device_id} to receive rewards.`
+    : `Unlink wallet ${c.wallet} from device ${c.device_id}.`;
   return [
     'TRACE',
     '',
-    `${action} al dispositivo ${c.device_id} per ricevere le ricompense.`,
+    action,
     '',
-    `Codice: ${c.code}`,
-    `Scade: ${new Date(c.expires_at).toISOString()}`,
+    `Code: ${c.code}`,
+    `Expires: ${new Date(c.expires_at).toISOString()}`,
     '',
-    'Firmare non costa nulla e non sposta fondi.',
+    'Signing is free and moves no funds.',
   ].join('\n');
 }
 
-// Verifica una firma Ed25519 (quella dei wallet Solana) di `message` fatta da `wallet`.
+// Verifies an Ed25519 signature (the scheme Solana wallets use) of `message` by `wallet`.
 export function verifyWalletSignature(message: string, signature: Uint8Array, wallet: PublicKey): boolean {
   if (signature.length !== 64) return false;
   const key = createPublicKey({

@@ -141,6 +141,5 @@ Environment variables on Vercel:
 
 - **Device identity.** The signature proves wallet ownership, not device ownership: the random `deviceId` is still the credential for uploading history.
 - **Sybil resistance.** Rules apply per device and per wallet, so many devices and wallets multiply bonuses. Next: proof-of-personhood or stake-weighted limits before mainnet.
-- **Data buyers.** The MVP covers the user side. The next step is the demand side: aggregated, anonymized insights sold to buyers, with revenue funding the reward pool.
+- **Chrome Web Store.** Publishing requires a privacy policy, a data-use disclosure and compliance with the store's Limited Use policy (browsing data only for user-facing features, never sold to third parties); the MVP is distributed as an unpacked extension.
 - **Mainnet.** Paying users for personal data has GDPR implications and, in the EU, MiCA implications for the token; both need legal review before launch.
-- **Chrome Web Store** publication requires a privacy policy and a data-use disclosure.

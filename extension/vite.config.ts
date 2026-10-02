@@ -1,8 +1,8 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 
-// Due entry: il popup (HTML) e il service worker. I nomi di output sono fissi
-// perché manifest.json li referenzia direttamente.
+// Two entries: the popup (HTML) and the service worker. Output names are fixed
+// because manifest.json references them directly.
 export default defineConfig({
   build: {
     outDir: 'dist',

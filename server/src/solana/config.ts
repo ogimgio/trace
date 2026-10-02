@@ -2,17 +2,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Keypair, PublicKey } from '@solana/web3.js';
 
-// Tutto ciò che è segreto o specifico della macchina sta in server/.secrets/ (fuori dal repo).
+// Everything secret or machine-specific lives in server/.secrets/ (outside the repo).
 export const SECRETS_DIR = resolve(import.meta.dirname, '../../.secrets');
-// Wallet "caldo" del server: paga le fee, possiede il fondo ricompense e può aggiornare i metadati.
+// Server "hot" wallet: pays fees, holds the rewards pool and can update the metadata.
 export const SERVER_KEYPAIR_PATH = resolve(SECRETS_DIR, 'server-wallet.json');
-// Wallet della riserva (team, progetto, liquidità): il server non lo usa mai.
+// Reserve wallet (team, project, liquidity): the server never uses it.
 export const RESERVE_KEYPAIR_PATH = resolve(SECRETS_DIR, 'reserve-wallet.json');
 export const TOKEN_INFO_PATH = resolve(SECRETS_DIR, 'token.json');
 
 export const DEFAULT_RPC_URL = 'https://api.devnet.solana.com';
 
-// Scritto da `npm run solana:setup` dopo aver creato il mint.
+// Written by `npm run solana:setup` after creating the mint.
 export interface TokenInfo {
   mint: string;
   decimals: number;
@@ -31,9 +31,9 @@ export function keypairFromJson(json: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(json) as number[]));
 }
 
-// Le variabili d'ambiente hanno la precedenza sui file in .secrets/ (utile in deploy):
-//   SOLANA_RPC_URL, SERVER_WALLET (contenuto JSON del keypair), MINT_ADDRESS, MINT_DECIMALS
-// Restituisce null se il token non è ancora stato creato.
+// Environment variables take precedence over the files in .secrets/ (useful when deploying):
+//   SOLANA_RPC_URL, SERVER_WALLET (keypair JSON contents), MINT_ADDRESS, MINT_DECIMALS
+// Returns null if the token has not been created yet.
 export function loadSolanaConfig(env = process.env): SolanaConfig | null {
   const fileInfo: Partial<TokenInfo> = existsSync(TOKEN_INFO_PATH)
     ? JSON.parse(readFileSync(TOKEN_INFO_PATH, 'utf8'))

@@ -1,7 +1,7 @@
 {
   "name": "trace-server",
   "version": "1.0.0",
-  "description": "Backend TRACE: riceve la cronologia dall estensione, la salva su Postgres (Supabase) e distribuisce le ricompense",
+  "description": "TRACE backend: stores consented browsing history on Postgres (Supabase) and pays rewards on Solana",
   "scripts": {
     "dev": "node --watch src/index.ts",
     "start": "node src/index.ts",

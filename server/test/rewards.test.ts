@@ -8,7 +8,7 @@ import { distribute, grantWelcome, planEpoch, readyEpochs, sendPayouts, settleEp
 import { startTestDb } from './db.ts';
 
 const DAY = 86_400_000;
-const D = 6; // decimali
+const D = 6; // decimals
 
 let db: Sql;
 let reset: () => Promise<void>;
@@ -28,11 +28,11 @@ test('pageKey keeps only public web pages and ignores query/fragment', () => {
 
 test('scoreVisits caps pages and counts active days', () => {
   const { startsAt } = epochRange(0);
-  // Uno script che apre 5000 URL diversi in un giorno
+  // A script opening 5000 different URLs in one day
   const spam = Array.from({ length: 5000 }, (_, i) => ({ url: `https://spam.com/${i}`, visitTime: startsAt + i }));
   assert.deepEqual(scoreVisits(spam), { pages: 5000, activeDays: 1, points: 1000 + 100 });
 
-  // Navigazione normale: 7 giorni con 10 visite, più un giorno con solo 2 visite che non conta
+  // Normal browsing: 7 days with 10 visits, plus a day with only 2 visits that does not count
   const normal = [];
   for (let d = 0; d < 7; d++) for (let i = 0; i < 10; i++) normal.push({ url: `https://site${i}.com/`, visitTime: startsAt + d * DAY + i });
   assert.deepEqual(scoreVisits(normal), { pages: 10, activeDays: 7, points: 10 + 700 });
@@ -48,9 +48,9 @@ test('weekly budget decays by 1% and never exceeds the 500M pool', () => {
 });
 
 test('distribute is proportional, capped per point and never exceeds the budget', () => {
-  // Pochi utenti: vale il tetto per punto
+  // Few users: the per-point cap applies
   assert.deepEqual(distribute(1_000_000n, [100, 300], 10n), [1000n, 3000n]);
-  // Tanti punti: vale la proporzione
+  // Many points: the proportional split applies
   assert.deepEqual(distribute(1000n, [100, 300], 10n), [250n, 750n]);
   const amounts = distribute(1000n, [1, 1, 1], 1000n);
   assert.ok(amounts.reduce((a, b) => a + b) <= 1000n);
@@ -71,10 +71,10 @@ async function seed() {
       rows.push({ device_id: device, visit_id: String(rows.length), url: `https://${device}.com/${d}/${i}`, visit_time: from + d * DAY + i, received_at: 0 });
     }
   };
-  browse('dev-a', 7, 20); // 140 pagine + 700 = 840 punti
-  browse('dev-b', 2, 10); // 20 pagine + 200 = 220 punti, solo 2 giorni attivi
+  browse('dev-a', 7, 20); // 140 pages + 700 = 840 points
+  browse('dev-b', 2, 10); // 20 pages + 200 = 220 points, only 2 active days
   browse('dev-nowallet', 7, 20);
-  browse('dev-b', 7, 10, startsAt - 7 * DAY); // storico prima dell'epoch 0: 7 giorni attivi → bonus
+  browse('dev-b', 7, 10, startsAt - 7 * DAY); // history before epoch 0: 7 active days → bonus
   await db`INSERT INTO visits ${db(rows)}`;
   return { wallets, afterEpoch0: epochRange(0).endsAt + 9 * DAY };
 }
@@ -85,9 +85,9 @@ test('settleEpoch pays devices with a wallet, adds the welcome bonus once, and i
 
   assert.equal(plan.totalPoints, 840 + 220);
   const byKey = Object.fromEntries(plan.payouts.map((p) => [`${p.deviceId}:${p.kind}`, p]));
-  // dev-a ha 7 giorni attivi nella settimana, dev-b nello storico precedente: bonus a entrambi
+  // dev-a has 7 active days in the week, dev-b in its earlier history: bonus for both
   assert.deepEqual(Object.keys(byKey).sort(), ['dev-a:weekly', 'dev-a:welcome', 'dev-b:weekly', 'dev-b:welcome']);
-  // Pochi utenti: ognuno prende il tetto di 1 TRACE per punto
+  // Few users: each gets the cap of 1 TRACE per point
   assert.equal(byKey['dev-a:weekly'].amount, toUnits(840n, D));
   assert.equal(byKey['dev-b:weekly'].amount, toUnits(220n, D));
   assert.equal(byKey['dev-b:welcome'].amount, toUnits(500n, D));
@@ -97,7 +97,7 @@ test('settleEpoch pays devices with a wallet, adds the welcome bonus once, and i
   assert.equal(rows.n, 4);
   await assert.rejects(settleEpoch(db, 0, D, afterEpoch0), /already settled/);
   assert.deepEqual(await readyEpochs(db, afterEpoch0), []);
-  // Il bonus non viene ripetuto la settimana dopo
+  // The bonus is not repeated the following week
   assert.ok(!(await planEpoch(db, 1, D)).payouts.some((p) => p.kind === 'welcome'));
 });
 
@@ -126,7 +126,7 @@ test('sendPayouts marks sent, retryable failures, and unknown outcomes separatel
   const rows = await sendPayouts(db, rewarder);
   assert.deepEqual(rows.map((r) => r.status), ['sent', 'failed', 'sending', 'sending']);
 
-  // Senza --retry-failed non si ritenta niente; con, solo il 'failed' (il 'sending' potrebbe essere già arrivato)
+  // Without --retry-failed nothing is retried; with it, only 'failed' ('sending' may have already landed)
   assert.equal((await sendPayouts(db, rewarder)).length, 0);
   const retried = await sendPayouts(db, { send: async () => ({ signature: 'sig-2', explorerUrl: '' }) }, { retryFailed: true });
   assert.deepEqual(retried.map((r) => r.status), ['sent']);
@@ -134,21 +134,21 @@ test('sendPayouts marks sent, retryable failures, and unknown outcomes separatel
 
 test('welcome bonus is granted once per device and once per wallet', async () => {
   const { wallets, afterEpoch0 } = await seed();
-  // dev-a ha 7 giorni attivi: bonus subito
+  // dev-a has 7 active days: bonus right away
   const row = await grantWelcome(db, 'dev-a', wallets.a, D, afterEpoch0);
   assert.equal(row?.status, 'pending');
   assert.equal(row?.amount, toUnits(500n, D).toString());
   assert.equal(await grantWelcome(db, 'dev-a', wallets.a, D, afterEpoch0), null);
-  // Lo stesso wallet su un altro device non prende un secondo bonus
+  // The same wallet on another device does not get a second bonus
   assert.equal(await grantWelcome(db, 'dev-nowallet', wallets.a, D, afterEpoch0), null);
-  // E la chiusura della settimana non lo ripaga
+  // And settling the week does not pay it again
   assert.ok(!(await planEpoch(db, 0, D)).payouts.some((p) => p.deviceId === 'dev-a' && p.kind === 'welcome'));
 });
 
 test('welcome bonus waits for enough history', async () => {
   const { wallets } = await seed();
   const { startsAt } = epochRange(0);
-  // A metà della prima settimana dev-a ha solo 3 giorni attivi
+  // Halfway through the first week dev-a has only 3 active days
   assert.equal(await grantWelcome(db, 'dev-a', wallets.a, D, startsAt + 3 * DAY), null);
 });
 

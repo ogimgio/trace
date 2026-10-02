@@ -7,8 +7,8 @@ import {
 } from './policy.ts';
 import { pageKey, scoreVisits, type ScoredVisit } from './points.ts';
 
-// Tutte le garanzie contro i doppi pagamenti stanno nel database (vincoli unici e UPDATE condizionati),
-// perché in produzione girano più istanze del server in parallelo.
+// All guarantees against double payouts live in the database (unique constraints and conditional UPDATEs),
+// because in production several server instances run in parallel.
 
 export interface PlannedPayout {
   deviceId: string;
@@ -32,14 +32,14 @@ export interface PayoutRow {
   wallet: string;
   kind: 'weekly' | 'welcome';
   points: number;
-  amount: string; // unità base (numeric)
+  amount: string; // base units (numeric)
   status: 'pending' | 'sending' | 'sent' | 'failed';
   signature: string | null;
   error: string | null;
 }
 
-// Divide il budget in proporzione ai punti, con un tetto per punto. Arrotonda per difetto:
-// la somma non supera mai il budget, gli spiccioli restano nel fondo.
+// Splits the budget in proportion to points, with a per-point cap. Rounds down:
+// the sum never exceeds the budget, leftover dust stays in the pool.
 export function distribute(budget: bigint, points: number[], maxPerPoint: bigint): bigint[] {
   const total = BigInt(points.reduce((a, b) => a + b, 0));
   if (total === 0n) return points.map(() => 0n);
@@ -55,7 +55,7 @@ const visitsBetween = (sql: Sql, deviceId: string, from: number, to: number) => 
   WHERE device_id = ${deviceId} AND visit_time >= ${from} AND visit_time < ${to}
 `;
 
-// Calcola chi riceve cosa per un epoch, senza scrivere niente. Partecipano solo i device con un wallet.
+// Computes who gets what for an epoch, without writing anything. Only devices with a wallet take part.
 export async function planEpoch(sql: Sql, epoch: number, decimals: number): Promise<EpochPlan> {
   const { startsAt, endsAt } = epochRange(epoch);
   const devices = await sql<{ id: string; wallet_address: string }[]>`
@@ -78,7 +78,7 @@ export async function planEpoch(sql: Sql, epoch: number, decimals: number): Prom
     amount: amounts[i],
   }));
 
-  // Bonus di benvenuto non ancora dato al collegamento del wallet (es. storico arrivato dopo): lo diamo ora.
+  // Welcome bonus not yet granted when the wallet was linked (e.g. history arrived later): grant it now.
   for (const d of devices) {
     if (!(await isWelcomeEligible(sql, d.id, d.wallet_address, endsAt))) continue;
     payouts.push({ deviceId: d.id, wallet: d.wallet_address, kind: 'welcome', points: 0, amount: toUnits(WELCOME_BONUS, decimals) });
@@ -97,8 +97,8 @@ function activeDays(visits: ScoredVisit[]): number {
   return [...perDay.values()].filter((n) => n >= MIN_VISITS_PER_ACTIVE_DAY).length;
 }
 
-// Il bonus di benvenuto spetta una volta sola per device e per wallet (collegare lo stesso wallet a più
-// device non lo moltiplica), a chi ha almeno WELCOME_MIN_ACTIVE_DAYS giorni attivi di storico.
+// The welcome bonus is granted once per device and per wallet (linking the same wallet to several
+// devices does not multiply it), to anyone with at least WELCOME_MIN_ACTIVE_DAYS active days of history.
 export async function isWelcomeEligible(sql: Sql, deviceId: string, wallet: string, until: number): Promise<boolean> {
   const [already] = await sql`
     SELECT 1 FROM reward_payouts WHERE kind = 'welcome' AND (device_id = ${deviceId} OR wallet = ${wallet}) LIMIT 1
@@ -107,8 +107,8 @@ export async function isWelcomeEligible(sql: Sql, deviceId: string, wallet: stri
   return activeDays(await visitsBetween(sql, deviceId, 0, until)) >= WELCOME_MIN_ACTIVE_DAYS;
 }
 
-// Al collegamento del wallet: se spetta, crea subito il pagamento del bonus di benvenuto ('pending').
-// Restituisce la riga creata, oppure null se il bonus non spetta (o un'altra richiesta l'ha appena creato).
+// On wallet link: if eligible, immediately creates the welcome bonus payout ('pending').
+// Returns the created row, or null if not eligible (or another request just created it).
 export async function grantWelcome(sql: Sql, deviceId: string, wallet: string, decimals: number, now = Date.now()): Promise<PayoutRow | null> {
   if (!(await isWelcomeEligible(sql, deviceId, wallet, now))) return null;
   const [row] = await sql<PayoutRow[]>`
@@ -125,8 +125,8 @@ export async function isSettled(sql: Sql, epoch: number): Promise<boolean> {
   return row !== undefined;
 }
 
-// Chiude un epoch: salva i pagamenti come 'pending'. Un epoch chiuso non viene mai ricalcolato,
-// quindi le visite che arrivano dopo non contano più per quella settimana.
+// Settles an epoch: stores payouts as 'pending'. A settled epoch is never recomputed,
+// so visits arriving later no longer count for that week.
 export async function settleEpoch(
   sql: Sql, epoch: number, decimals: number, now = Date.now(), { ignoreGrace = false } = {},
 ): Promise<EpochPlan> {
@@ -137,7 +137,7 @@ export async function settleEpoch(
   const weekly = plan.payouts.filter((p) => p.kind === 'weekly').reduce((a, p) => a + p.amount, 0n);
 
   await sql.begin(async (tx) => {
-    // La chiave primaria su epoch impedisce che due chiusure in parallelo scrivano entrambe.
+    // The primary key on epoch prevents two parallel settlements from both writing.
     const inserted = await tx`
       INSERT INTO reward_epochs (epoch, budget, total_points, distributed, settled_at)
       VALUES (${epoch}, ${plan.budget.toString()}, ${plan.totalPoints}, ${weekly.toString()}, ${now})
@@ -156,12 +156,12 @@ export async function settleEpoch(
   return plan;
 }
 
-// Invia on-chain i pagamenti in attesa. Prima di inviare, la riga passa a 'sending'.
-// - Rifiutata in simulazione (SendTransactionError): non è arrivata on-chain, diventa 'failed' e si può ritentare.
-// - Qualsiasi altro errore (es. timeout di conferma) o processo morto a metà: la transazione potrebbe essere
-//   andata a buon fine, quindi la riga resta 'sending' e va controllata a mano, per non pagare due volte.
-// Con `ids` invia solo quelle righe (es. il bonus appena creato). Ogni riga viene "presa" con un UPDATE
-// condizionato, quindi due invii in parallelo non pagano mai due volte la stessa riga.
+// Sends pending payouts on-chain. Before sending, the row moves to 'sending'.
+// - Rejected in simulation (SendTransactionError): it never reached the chain, becomes 'failed' and can be retried.
+// - Any other error (e.g. confirmation timeout) or a process dying midway: the transaction may have
+//   succeeded, so the row stays 'sending' and must be checked by hand, to avoid paying twice.
+// With `ids` only those rows are sent (e.g. the bonus just created). Each row is "claimed" with a conditional
+// UPDATE, so two parallel runs never pay the same row twice.
 export async function sendPayouts(
   sql: Sql, rewarder: Pick<Rewarder, 'send'>, { retryFailed = false, ids }: { retryFailed?: boolean; ids?: number[] } = {},
 ): Promise<PayoutRow[]> {
@@ -179,7 +179,7 @@ export async function sendPayouts(
       WHERE id = ${id} AND status IN ${sql(statuses)}
       RETURNING *
     `;
-    if (!row) continue; // già preso da un altro invio
+    if (!row) continue; // already claimed by another run
     try {
       const { signature } = await rewarder.send(new PublicKey(row.wallet), BigInt(row.amount));
       await sql`UPDATE reward_payouts SET status = 'sent', signature = ${signature}, sent_at = ${Date.now()} WHERE id = ${id}`;
@@ -194,7 +194,7 @@ export async function sendPayouts(
   return rows;
 }
 
-// Settimane finite (e oltre il margine) non ancora chiuse, dalla più vecchia.
+// Finished weeks (past the grace period) not yet settled, oldest first.
 export async function readyEpochs(sql: Sql, now: number, { ignoreGrace = false } = {}): Promise<number[]> {
   const settled = new Set((await sql<{ epoch: number }[]>`SELECT epoch FROM reward_epochs`).map((r) => r.epoch));
   const ready: number[] = [];

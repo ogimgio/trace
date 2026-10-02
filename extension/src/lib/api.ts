@@ -26,7 +26,7 @@ export function uploadVisits(deviceId: string, visits: VisitRecord[]) {
   });
 }
 
-// null se il server non conosce ancora questo device (nessuna sync fatta).
+// null if the server does not know this device yet (no sync done).
 export async function fetchStats(deviceId: string): Promise<DeviceStats | null> {
   const res = await fetch(`${SERVER_URL}/api/devices/${encodeURIComponent(deviceId)}/stats`);
   if (res.status === 404) return null;
@@ -46,7 +46,7 @@ export interface RewardsInfo {
     epoch: number;
     startsAt: number;
     endsAt: number;
-    payableFrom: number; // la settimana viene pagata da questo momento in poi
+    payableFrom: number; // the week is paid out from this moment on
     pages: number;
     activeDays: number;
     points: number;
@@ -71,7 +71,7 @@ export interface RewardsInfo {
   };
 }
 
-// null se il server non conosce ancora questo device (nessuna sync fatta).
+// null if the server does not know this device yet (no sync done).
 export async function fetchRewards(deviceId: string): Promise<RewardsInfo | null> {
   const res = await fetch(`${SERVER_URL}/api/devices/${encodeURIComponent(deviceId)}/rewards`);
   if (res.status === 404) return null;
@@ -79,7 +79,7 @@ export async function fetchRewards(deviceId: string): Promise<RewardsInfo | null
   return res.json() as Promise<RewardsInfo>;
 }
 
-// Chiede al server un codice monouso e restituisce l'URL della pagina dove Phantom firma.
+// Requests a one-time code from the server and returns the URL of the page where Phantom signs.
 export async function startWalletLink(deviceId: string, action: 'link' | 'unlink') {
   const { url } = await request<{ url: string }>(`/api/devices/${encodeURIComponent(deviceId)}/link-challenge`, {
     method: 'POST',

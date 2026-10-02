@@ -4,8 +4,8 @@ import { collectVisitsSince } from '../lib/history';
 import type { Message } from '../lib/messages';
 import { ensureDeviceId, getState, setState, type SyncTrigger } from '../lib/storage';
 
-// Un service worker appena avviato non ha sync in corso: azzera un flag rimasto
-// a true se il worker precedente è stato terminato a metà.
+// A freshly started service worker has no sync in progress: reset a flag left
+// at true if the previous worker was killed midway.
 void setState({ syncing: false });
 
 let currentSync: Promise<void> | null = null;
@@ -45,7 +45,7 @@ async function doSync(trigger: SyncTrigger): Promise<void> {
     });
     await chrome.alarms.clear(RETRY_ALARM);
   } catch (err) {
-    // lastSyncAt resta invariato: il prossimo tentativo rimanda tutto e il server scarta i duplicati.
+    // lastSyncAt stays unchanged: the next attempt resends everything and the server drops duplicates.
     await setState({
       lastSyncResult: { at: Date.now(), trigger, ok: false, visits: total, inserted, error: String(err) },
     });
@@ -69,7 +69,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await ensureDeviceId();
   await scheduleSync();
   if (reason === chrome.runtime.OnInstalledReason.INSTALL) {
-    // Pagina di benvenuto in una scheda: il dialog dei permessi non la chiude, a differenza del popup.
+    // Welcome page in a tab: the permission dialog does not close it, unlike the popup.
     await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html?onboarding=1') });
   }
 });
@@ -83,8 +83,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RETRY_ALARM) void runSync('retry');
 });
 
-// Il permesso "history" è opzionale e viene richiesto solo dal bottone di consenso nel popup.
-// Gestirlo qui fa partire la prima sync anche se il popup si chiude durante il dialog.
+// The "history" permission is optional and only requested by the consent button in the popup.
+// Handling it here starts the first sync even if the popup closes during the dialog.
 chrome.permissions.onAdded.addListener(async ({ permissions }) => {
   if (!permissions?.includes('history')) return;
   const { consentAt } = await getState();

@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 
-// Postgres (Supabase in produzione, PGlite nei test). I tempi sono millisecondi Unix in colonne bigint;
-// gli importi dei token sono numeric (unità base) e arrivano come stringhe, da convertire con BigInt().
+// Postgres (Supabase in production, PGlite in tests). Times are Unix milliseconds in bigint columns;
+// token amounts are numeric (base units) and arrive as strings, to be converted with BigInt().
 export type Sql = postgres.Sql<{ bigint: number }>;
 
 export const SCHEMA = `
@@ -44,7 +44,7 @@ export const SCHEMA = `
     settled_at    bigint NOT NULL
   );
 
-  -- I pagamenti restano anche se l'utente cancella i propri dati: sono il registro di cosa è stato inviato.
+  -- Payouts are kept even if the user deletes their data: they are the record of what was sent.
   CREATE TABLE IF NOT EXISTS reward_payouts (
     id          bigserial PRIMARY KEY,
     epoch       integer NOT NULL,
@@ -75,8 +75,8 @@ export const SCHEMA = `
     used_at     bigint
   );
 
-  -- Supabase espone le tabelle di "public" via API con la chiave anonima. Con RLS attivo e nessuna policy
-  -- quell'accesso è chiuso: solo il server, che si collega come proprietario delle tabelle, legge e scrive.
+  -- Supabase exposes "public" tables via its API with the anon key. With RLS enabled and no policies
+  -- that access is closed: only the server, which connects as the table owner, reads and writes.
   ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
   ALTER TABLE visits ENABLE ROW LEVEL SECURITY;
   ALTER TABLE uploads ENABLE ROW LEVEL SECURITY;
@@ -87,13 +87,13 @@ export const SCHEMA = `
 
 export function connect(url: string, options: postgres.Options<{}> = {}): Sql {
   return postgres(url, {
-    // Il pooler di Supabase in modalità transaction non supporta i prepared statement.
+    // Supabase's pooler in transaction mode does not support prepared statements.
     prepare: false,
-    // Nelle funzioni serverless ogni istanza tiene poche connessioni.
+    // In serverless functions each instance keeps only a few connections.
     max: 3,
     idle_timeout: 20,
     onnotice: () => {},
-    // bigint come number: sono timestamp in ms e contatori, ben sotto 2^53.
+    // bigint as number: they are ms timestamps and counters, well below 2^53.
     types: {
       bigint: { to: 20, from: [20], serialize: (x: number) => String(x), parse: (x: string) => Number(x) },
     },
@@ -105,11 +105,11 @@ export async function migrate(sql: Sql) {
   await sql.unsafe(SCHEMA);
 }
 
-// DATABASE_URL, oppure databaseUrl in server/.secrets/supabase.json (scritto dal setup locale).
+// DATABASE_URL, or databaseUrl in server/.secrets/supabase.json (written by the local setup).
 export function databaseUrl(env = process.env): string {
   if (env.DATABASE_URL) return env.DATABASE_URL;
   const file = resolve(import.meta.dirname, '../.secrets/supabase.json');
   const url = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { databaseUrl?: string }).databaseUrl : undefined;
-  if (!url) throw new Error('DATABASE_URL non impostato (né in server/.secrets/supabase.json)');
+  if (!url) throw new Error('DATABASE_URL not set (nor in server/.secrets/supabase.json)');
   return url;
 }

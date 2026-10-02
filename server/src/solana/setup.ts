@@ -1,10 +1,10 @@
-// Prepara tutto il necessario su Devnet, senza installare la CLI di Solana:
-//   1. crea i keypair del wallet del server e della riserva in .secrets/ (se non ci sono)
-//   2. chiede un airdrop di SOL di test se il saldo del server è basso
-//   3. crea il token (Token-2022 con metadati on-chain) e salva l'indirizzo in .secrets/token.json
-//   4. crea l'intera supply, la divide tra fondo ricompense e riserva e revoca la mint authority
-//   5. con --uri, aggiorna il link ai metadati (logo ecc.)
-// Si può rilanciare: i passi già fatti vengono saltati.
+// Sets up everything needed on Devnet, without installing the Solana CLI:
+//   1. creates the server and reserve wallet keypairs in .secrets/ (if missing)
+//   2. requests a test SOL airdrop if the server balance is low
+//   3. creates the token (Token-2022 with on-chain metadata) and saves the address to .secrets/token.json
+//   4. mints the entire supply, splits it between rewards pool and reserve, and revokes the mint authority
+//   5. with --uri, updates the metadata link (logo etc.)
+// Safe to re-run: steps already done are skipped.
 //
 //   npm run solana:setup -- --name TRACE --symbol TRACE [--uri https://.../metadata.json] [--decimals 6]
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -51,46 +51,46 @@ function loadOrCreateKeypair(path: string, label: string): Keypair {
   }
   const keypair = Keypair.generate();
   writeFileSync(path, JSON.stringify(Array.from(keypair.secretKey)), { mode: 0o600 });
-  console.log(`✓ ${label} creato: ${keypair.publicKey.toBase58()} (salvato in ${path})`);
+  console.log(`✓ ${label} created: ${keypair.publicKey.toBase58()} (saved to ${path})`);
   return keypair;
 }
 
-// 1. Keypair. Il primo setup chiamava il wallet del server "mint-authority": lo riusiamo, ha già i SOL.
+// 1. Keypairs. The first setup called the server wallet "mint-authority": reuse it, it already has SOL.
 const legacyPath = resolve(SECRETS_DIR, 'mint-authority.json');
 if (!existsSync(SERVER_KEYPAIR_PATH) && existsSync(legacyPath)) renameSync(legacyPath, SERVER_KEYPAIR_PATH);
-const server = loadOrCreateKeypair(SERVER_KEYPAIR_PATH, 'Wallet del server');
-const reserve = loadOrCreateKeypair(RESERVE_KEYPAIR_PATH, 'Wallet della riserva');
+const server = loadOrCreateKeypair(SERVER_KEYPAIR_PATH, 'Server wallet');
+const reserve = loadOrCreateKeypair(RESERVE_KEYPAIR_PATH, 'Reserve wallet');
 
-// 2. SOL per le fee
+// 2. SOL for fees
 const balance = await connection.getBalance(server.publicKey);
-console.log(`  Saldo server: ${balance / LAMPORTS_PER_SOL} SOL`);
+console.log(`  Server balance: ${balance / LAMPORTS_PER_SOL} SOL`);
 if (balance < MIN_BALANCE_SOL * LAMPORTS_PER_SOL) {
   try {
-    console.log('  Chiedo un airdrop di 1 SOL...');
+    console.log('  Requesting a 1 SOL airdrop...');
     const sig = await connection.requestAirdrop(server.publicKey, LAMPORTS_PER_SOL);
     await connection.confirmTransaction({ signature: sig, ...(await connection.getLatestBlockhash()) });
-    console.log('✓ Airdrop ricevuto');
+    console.log('✓ Airdrop received');
   } catch (err) {
-    console.error(`✗ Airdrop fallito (${(err as Error).message.split('\n')[0]})`);
-    console.error(`  Vai su https://faucet.solana.com, incolla ${server.publicKey.toBase58()} e scegli Devnet.`);
-    console.error('  Poi rilancia questo comando.');
+    console.error(`✗ Airdrop failed (${(err as Error).message.split('\n')[0]})`);
+    console.error(`  Go to https://faucet.solana.com, paste ${server.publicKey.toBase58()} and choose Devnet.`);
+    console.error('  Then run this command again.');
     process.exit(1);
   }
 }
 
-// 3. Mint con metadati
+// 3. Mint with metadata
 let info: TokenInfo;
 if (existsSync(TOKEN_INFO_PATH)) {
   info = JSON.parse(readFileSync(TOKEN_INFO_PATH, 'utf8')) as TokenInfo;
-  console.log(`✓ Token già creato: ${info.name} (${info.symbol}) ${info.mint}`);
+  console.log(`✓ Token already created: ${info.name} (${info.symbol}) ${info.mint}`);
 } else {
   if (!args.name || !args.symbol) {
-    console.error('✗ Per creare il token servono --name e --symbol, es: npm run solana:setup -- --name TRACE --symbol TRACE');
+    console.error('✗ Creating the token requires --name and --symbol, e.g.: npm run solana:setup -- --name TRACE --symbol TRACE');
     process.exit(1);
   }
   const decimals = Number(args.decimals);
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > MAX_DECIMALS) {
-    console.error(`✗ --decimals deve essere un intero tra 0 e ${MAX_DECIMALS}`);
+    console.error(`✗ --decimals must be an integer between 0 and ${MAX_DECIMALS}`);
     process.exit(1);
   }
 
@@ -105,9 +105,9 @@ if (existsSync(TOKEN_INFO_PATH)) {
     additionalMetadata: [],
   };
 
-  // Il mint contiene sia i dati del token sia i metadati (estensioni MetadataPointer + TokenMetadata).
-  // Lo spazio iniziale copre solo il puntatore; i metadati vengono allocati dal loro programma,
-  // ma l'affitto (rent) per entrambi va pagato subito.
+  // The mint holds both the token data and the metadata (MetadataPointer + TokenMetadata extensions).
+  // The initial space covers only the pointer; the metadata is allocated by its program,
+  // but rent for both must be paid upfront.
   const mintLen = getMintLen([ExtensionType.MetadataPointer]);
   const metadataLen = TYPE_SIZE + LENGTH_SIZE + pack(metadata).length;
   const lamports = await connection.getMinimumBalanceForRentExemption(mintLen + metadataLen);
@@ -121,7 +121,7 @@ if (existsSync(TOKEN_INFO_PATH)) {
       programId: TOKEN_2022_PROGRAM_ID,
     }),
     createInitializeMetadataPointerInstruction(mint, server.publicKey, mint, TOKEN_2022_PROGRAM_ID),
-    // Nessuna freeze authority: non possiamo bloccare i token degli utenti.
+    // No freeze authority: we cannot freeze users' tokens.
     createInitializeMintInstruction(mint, decimals, server.publicKey, null, TOKEN_2022_PROGRAM_ID),
     createInitializeInstruction({
       programId: TOKEN_2022_PROGRAM_ID,
@@ -135,16 +135,16 @@ if (existsSync(TOKEN_INFO_PATH)) {
     }),
   );
 
-  console.log(`  Creo il token ${args.name} (${args.symbol})...`);
+  console.log(`  Creating token ${args.name} (${args.symbol})...`);
   const signature = await sendAndConfirmTransaction(connection, tx, [server, mintKeypair]);
   info = { mint: mint.toBase58(), decimals, name: args.name, symbol: args.symbol };
   writeFileSync(TOKEN_INFO_PATH, JSON.stringify(info, null, 2) + '\n');
-  console.log(`✓ Token creato: ${info.mint}`);
+  console.log(`✓ Token created: ${info.mint}`);
   console.log(`  ${explorer('tx', signature)}`);
 }
 
-// 4. Supply fissa: conio tutto e revoco la mint authority nella stessa transazione,
-// così non può esistere uno stato intermedio in cui la supply è stata creata ma si può ancora aumentare.
+// 4. Fixed supply: mint everything and revoke the mint authority in the same transaction,
+// so there is never an intermediate state where the supply exists but can still be increased.
 const mint = new PublicKey(info.mint);
 const mintState = await getMint(connection, mint, 'confirmed', TOKEN_2022_PROGRAM_ID);
 const split = allocations(info.decimals);
@@ -152,10 +152,10 @@ const poolAccount = getAssociatedTokenAddressSync(mint, server.publicKey, false,
 const reserveAccount = getAssociatedTokenAddressSync(mint, reserve.publicKey, false, TOKEN_2022_PROGRAM_ID);
 
 if (mintState.mintAuthority === null) {
-  console.log(`✓ Supply fissa: ${formatUnits(mintState.supply, info.decimals)} ${info.symbol}, mint authority revocata`);
+  console.log(`✓ Fixed supply: ${formatUnits(mintState.supply, info.decimals)} ${info.symbol}, mint authority revoked`);
 } else if (mintState.supply !== 0n) {
-  console.error(`✗ Il mint ha già ${formatUnits(mintState.supply, info.decimals)} token ma la mint authority è ancora attiva.`);
-  console.error('  Non è stato creato da questo setup: cancella .secrets/token.json e rilancia per crearne uno nuovo.');
+  console.error(`✗ The mint already has ${formatUnits(mintState.supply, info.decimals)} tokens but the mint authority is still active.`);
+  console.error('  It was not created by this setup: delete .secrets/token.json and run again to create a new one.');
   process.exit(1);
 } else {
   const tx = new Transaction().add(
@@ -165,22 +165,22 @@ if (mintState.mintAuthority === null) {
     createMintToCheckedInstruction(mint, reserveAccount, server.publicKey, split.reserve, info.decimals, [], TOKEN_2022_PROGRAM_ID),
     createSetAuthorityInstruction(mint, server.publicKey, AuthorityType.MintTokens, null, [], TOKEN_2022_PROGRAM_ID),
   );
-  console.log(`  Creo ${formatUnits(split.total, info.decimals)} ${info.symbol} e revoco la mint authority...`);
+  console.log(`  Minting ${formatUnits(split.total, info.decimals)} ${info.symbol} and revoking the mint authority...`);
   const signature = await sendAndConfirmTransaction(connection, tx, [server]);
-  console.log(`✓ Supply fissa creata, nessuno potrà più crearne altri`);
+  console.log(`✓ Fixed supply minted, nobody can ever mint more`);
   console.log(`  ${explorer('tx', signature)}`);
 }
 
-// 5. Link ai metadati (logo, descrizione)
+// 5. Metadata link (logo, description)
 if (args.uri !== undefined) {
   const current = await getTokenMetadata(connection, mint, 'confirmed', TOKEN_2022_PROGRAM_ID);
   if (current?.uri === args.uri) {
-    console.log('✓ URI dei metadati già aggiornato');
+    console.log('✓ Metadata URI already up to date');
   } else {
     const signature = await tokenMetadataUpdateFieldWithRentTransfer(
       connection, server, mint, server, Field.Uri, args.uri, [], undefined, TOKEN_2022_PROGRAM_ID,
     );
-    console.log(`✓ URI dei metadati aggiornato: ${args.uri}`);
+    console.log(`✓ Metadata URI updated: ${args.uri}`);
     console.log(`  ${explorer('tx', signature)}`);
   }
 }
@@ -190,6 +190,6 @@ const [pool, reserveBalance] = await Promise.all([
   connection.getTokenAccountBalance(reserveAccount),
 ]);
 console.log('');
-console.log(`Token:            ${explorer('address', info.mint)}`);
-console.log(`Fondo ricompense: ${pool.value.uiAmountString} ${info.symbol} (wallet ${server.publicKey.toBase58()})`);
-console.log(`Riserva:          ${reserveBalance.value.uiAmountString} ${info.symbol} (wallet ${reserve.publicKey.toBase58()})`);
+console.log(`Token:        ${explorer('address', info.mint)}`);
+console.log(`Rewards pool: ${pool.value.uiAmountString} ${info.symbol} (wallet ${server.publicKey.toBase58()})`);
+console.log(`Reserve:      ${reserveBalance.value.uiAmountString} ${info.symbol} (wallet ${reserve.publicKey.toBase58()})`);

@@ -9,8 +9,8 @@ import type { SolanaConfig } from './config.ts';
 
 export const MAX_DECIMALS = 9;
 
-// Converte un importo leggibile ("1.5") in unità base (1_500_000n con 6 decimali),
-// senza passare dai float: 0.1 + 0.2 non deve diventare 300000000000000004.
+// Converts a human-readable amount ("1.5") to base units (1_500_000n with 6 decimals),
+// without going through floats: 0.1 + 0.2 must not become 300000000000000004.
 export function toBaseUnits(amount: string | number, decimals: number): bigint {
   const text = typeof amount === 'number' ? amount.toFixed(decimals) : amount.trim();
   const match = /^(\d+)(?:\.(\d+))?$/.exec(text);
@@ -23,7 +23,7 @@ export function toBaseUnits(amount: string | number, decimals: number): bigint {
   return units;
 }
 
-// Inverso di toBaseUnits: 1_500_000n con 6 decimali → "1.5".
+// Inverse of toBaseUnits: 1_500_000n with 6 decimals → "1.5".
 export function formatUnits(units: bigint, decimals: number): string {
   const text = units.toString().padStart(decimals + 1, '0');
   const whole = text.slice(0, text.length - decimals);
@@ -31,8 +31,8 @@ export function formatUnits(units: bigint, decimals: number): string {
   return frac ? `${whole}.${frac}` : whole;
 }
 
-// Valida l'indirizzo che l'utente ha incollato nell'estensione.
-// Rifiuta anche gli indirizzi fuori dalla curva (PDA): non sono wallet e non possono avere un ATA standard.
+// Validates the address the user pasted into the extension.
+// Also rejects off-curve addresses (PDAs): they are not wallets and cannot have a standard ATA.
 export function parseWalletAddress(address: unknown): PublicKey | null {
   if (typeof address !== 'string' || address.length < 32 || address.length > 44) return null;
   try {
@@ -52,8 +52,8 @@ export interface TransferResult {
   explorerUrl: string;
 }
 
-// La supply è fissa: le ricompense non vengono create, escono dal fondo ricompense
-// (il token account del wallet del server).
+// Supply is fixed: rewards are not minted, they come out of the rewards pool
+// (the server wallet's token account).
 export function createRewarder(config: SolanaConfig) {
   const connection = new Connection(config.rpcUrl, 'confirmed');
   const { serverWallet, mint, decimals } = config;
@@ -61,8 +61,8 @@ export function createRewarder(config: SolanaConfig) {
 
   const tokenAccountOf = (wallet: PublicKey) => getAssociatedTokenAddressSync(mint, wallet, false, TOKEN_2022_PROGRAM_ID);
 
-  // Una sola transazione: crea il token account dell'utente se manca (idempotente) e trasferisce i token.
-  // Il server paga le fee, l'utente non deve avere SOL.
+  // A single transaction: creates the user's token account if missing (idempotent) and transfers the tokens.
+  // The server pays the fees, the user needs no SOL.
   async function send(wallet: PublicKey, units: bigint): Promise<TransferResult> {
     const destination = tokenAccountOf(wallet);
     const tx = new Transaction().add(
@@ -77,7 +77,7 @@ export function createRewarder(config: SolanaConfig) {
     return { signature, explorerUrl: explorerTxUrl(signature) };
   }
 
-  // Saldo in unità base; 0n se il token account non esiste ancora.
+  // Balance in base units; 0n if the token account does not exist yet.
   async function balanceOf(wallet: PublicKey): Promise<bigint> {
     try {
       const { value } = await connection.getTokenAccountBalance(tokenAccountOf(wallet));

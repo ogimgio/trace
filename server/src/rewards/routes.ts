@@ -13,12 +13,12 @@ import {
 } from './link.ts';
 
 export interface RewardsOptions {
-  // Senza rewarder (es. nei test, o token non configurato) il bonus resta 'pending' e lo invia `rewards:settle`.
+  // Without a rewarder (e.g. in tests, or token not configured) the bonus stays 'pending' and `rewards:settle` sends it.
   rewarder?: Pick<Rewarder, 'send'>;
   decimals?: number;
   symbol?: string;
   now?: () => number;
-  // Protegge /api/cron/settle: Vercel Cron manda "Authorization: Bearer <CRON_SECRET>".
+  // Protects /api/cron/settle: Vercel Cron sends "Authorization: Bearer <CRON_SECRET>".
   cronSecret?: string;
 }
 
@@ -43,9 +43,9 @@ export function createRewardsRouter(
     explorerUrl: p.signature ? explorerTxUrl(p.signature) : null,
   });
 
-  // --- Collegamento del wallet con firma (vedi link.ts) ---
+  // --- Wallet linking via signature (see link.ts) ---
 
-  // L'estensione chiede un codice per collegare un wallet ('link') o scollegare quello attuale ('unlink').
+  // The extension requests a code to link a wallet ('link') or unlink the current one ('unlink').
   router.post('/api/devices/:id/link-challenge', async (req, res) => {
     const action: LinkAction = req.body?.action === 'unlink' ? 'unlink' : 'link';
     const device = await getDevice(req.params.id);
@@ -65,7 +65,7 @@ export function createRewardsRouter(
     res.json({ code: challenge.code, action, expiresAt: challenge.expires_at, url: `/link.html?code=${challenge.code}` });
   });
 
-  // Letta dalla pagina /link: cosa firmare.
+  // Read by the /link page: what to sign.
   router.get('/api/link/:code', async (req, res) => {
     const challenge = await getChallenge(sql, req.params.code);
     if (!challenge) {
@@ -83,7 +83,7 @@ export function createRewardsRouter(
     });
   });
 
-  // La pagina /link manda la firma. Se è valida, collega (e la prima volta invia il bonus) o scollega.
+  // The /link page posts the signature. If valid, links (sending the bonus the first time) or unlinks.
   router.post('/api/link/:code', async (req, res) => {
     const challenge = await getChallenge(sql, req.params.code);
     if (!challenge) {
@@ -135,7 +135,7 @@ export function createRewardsRouter(
     res.json({ action: 'link', wallet: wallet.toBase58(), welcome: welcome ? payoutJson(welcome) : null });
   });
 
-  // La pagina dove Phantom firma è public/link.html (Phantom non funziona nelle pagine dell'estensione).
+  // The page where Phantom signs is public/link.html (Phantom does not work in extension pages).
 
   router.get('/api/devices/:id/rewards', async (req, res) => {
     const device = await getDevice(req.params.id);
@@ -157,7 +157,7 @@ export function createRewardsRouter(
       symbol,
       wallet: device.wallet_address,
       totalReceived: tokens(received),
-      // Stima della settimana in corso: i punti sono definitivi, l'importo dipende da quanti punti fanno gli altri.
+      // Current week estimate: points are final, the amount depends on how many points others earn.
       currentWeek: {
         epoch,
         startsAt,
@@ -179,7 +179,7 @@ export function createRewardsRouter(
     });
   });
 
-  // Chiamato ogni giorno da Vercel Cron: chiude le settimane pronte e invia i pagamenti in coda.
+  // Called daily by Vercel Cron: settles ready weeks and sends queued payouts.
   router.get('/api/cron/settle', async (req, res) => {
     if (!cronSecret || req.headers.authorization !== `Bearer ${cronSecret}`) {
       res.status(401).json({ error: 'unauthorized' });

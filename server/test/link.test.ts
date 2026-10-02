@@ -11,7 +11,7 @@ import { EPOCH_MS } from '../src/rewards/policy.ts';
 
 const DAY = 86_400_000;
 
-// Firma come farebbe Phantom: Ed25519 sui byte UTF-8 del messaggio.
+// Signs like Phantom does: Ed25519 over the message's UTF-8 bytes.
 function signWith(keypair: Keypair, message: string): string {
   const key = createPrivateKey({
     key: {
@@ -55,7 +55,7 @@ const json = (method: string, body?: unknown) => ({
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
-// Device con 8 giorni attivi di storico: ha diritto al bonus di benvenuto.
+// Device with 8 active days of history: eligible for the welcome bonus.
 async function newDevice(id: string) {
   const visits = [];
   for (let d = 1; d <= 8; d++) for (let i = 0; i < 5; i++) {
@@ -88,7 +88,7 @@ test('signed link connects the wallet and sends the welcome bonus right away', a
 
   const info = await (await fetch(`${base}/api/link/${c.code}`)).json();
   assert.equal(info.status, 'valid');
-  assert.match(info.message, /Collega questo wallet al dispositivo dev-1/);
+  assert.match(info.message, /Link this wallet to device dev-1/);
   assert.match(info.message, new RegExp(c.code));
 
   const { status, body } = await submit(c.code, alice);
@@ -106,15 +106,15 @@ test('a wrong signature is rejected and does not burn the code', async () => {
   const { body: c } = await challenge('dev-2');
   const info = await (await fetch(`${base}/api/link/${c.code}`)).json();
 
-  // Firma di un altro wallet che si spaccia per alice
+  // Signature from another wallet pretending to be alice
   const forged = await fetch(`${base}/api/link/${c.code}`, json('POST', {
     wallet: alice.publicKey.toBase58(),
     signature: signWith(mallory, info.message),
   }));
   assert.equal(forged.status, 401);
-  // Messaggio diverso da quello della challenge
+  // A message different from the challenge's
   assert.equal((await submit(c.code, alice, info.message.replace('dev-2', 'dev-X'))).status, 401);
-  // Firma non valida
+  // Malformed signature
   const garbage = await fetch(`${base}/api/link/${c.code}`, json('POST', { wallet: alice.publicKey.toBase58(), signature: 'AAAA' }));
   assert.equal(garbage.status, 401);
 
@@ -148,13 +148,13 @@ test('a linked wallet is locked: only that wallet can unlink it', async () => {
   const mallory = Keypair.generate();
   await submit((await challenge('dev-5')).body.code, alice);
 
-  // Chi conosce il deviceId non può collegare il suo wallet al posto di quello di alice
+  // Knowing the deviceId is not enough to replace alice's wallet with your own
   assert.equal((await challenge('dev-5', 'link')).status, 409);
   const { body: unlink } = await challenge('dev-5', 'unlink');
   assert.equal((await submit(unlink.code, mallory)).status, 403);
   assert.equal((await rewards('dev-5')).wallet, alice.publicKey.toBase58());
 
-  // Alice si scollega e collega un nuovo wallet: niente secondo bonus di benvenuto
+  // Alice unlinks and links a new wallet: no second welcome bonus
   const out = await submit(unlink.code, alice);
   assert.deepEqual(out.body, { action: 'unlink', wallet: null, welcome: null });
   assert.equal((await rewards('dev-5')).wallet, null);
@@ -174,12 +174,12 @@ test('challenge errors and the signing page', async () => {
   assert.match(await page.text(), /signMessage/);
   assert.equal((await fetch(`${base}/logo.svg`)).status, 200);
 
-  // Il cron richiede il segreto
+  // The cron endpoint requires the secret
   assert.equal((await fetch(`${base}/api/cron/settle`)).status, 401);
   const cron = await fetch(`${base}/api/cron/settle`, { headers: { authorization: 'Bearer cron-test' } });
   assert.equal(cron.status, 200);
 
-  // L'API vecchia senza firma non esiste più
+  // The old unsigned API is gone
   const unsigned = await fetch(`${base}/api/devices/dev-6/wallet`, json('PUT', { wallet: Keypair.generate().publicKey.toBase58() }));
   assert.equal(unsigned.status, 404);
 

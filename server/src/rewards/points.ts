@@ -6,16 +6,16 @@ export interface ScoredVisit {
 }
 
 export interface Score {
-  pages: number; // pagine uniche (dominio + percorso) visitate nella settimana
-  activeDays: number; // giorni UTC con almeno MIN_VISITS_PER_ACTIVE_DAY visite valide
+  pages: number; // unique pages (domain + path) visited during the week
+  activeDays: number; // UTC days with at least MIN_VISITS_PER_ACTIVE_DAY valid visits
   points: number;
 }
 
 const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\]$|0\.0\.0\.0$)|\.local$|\.internal$/;
 
-// Chiave di una pagina: dominio + percorso, senza query e frammento.
-// Così ?q=1, ?q=2, ... contano come una pagina sola e non si gonfiano i punti con URL generati.
-// Restituisce null per ciò che non è navigazione web pubblica (file://, estensioni, localhost, reti private).
+// Page key: domain + path, without query and fragment.
+// So ?q=1, ?q=2, ... count as a single page and generated URLs cannot inflate points.
+// Returns null for anything that is not public web browsing (file://, extensions, localhost, private networks).
 export function pageKey(url: string): string | null {
   let parsed: URL;
   try {

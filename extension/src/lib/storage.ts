@@ -13,9 +13,9 @@ export interface SyncResult {
 
 export interface State {
   deviceId: string;
-  // Quando l'utente ha accettato; null = nessun consenso, nessuna sincronizzazione.
+  // When the user consented; null = no consent, no syncing.
   consentAt: number | null;
-  // Inizio dell'ultima sync riuscita: la prossima invia le visite da qui in poi.
+  // Start of the last successful sync: the next one sends visits from here on.
   lastSyncAt: number | null;
   lastSyncResult: SyncResult | null;
   syncIntervalMinutes: number;

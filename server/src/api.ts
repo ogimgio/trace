@@ -20,13 +20,13 @@ interface Upload {
   skipped: number;
 }
 
-// Gli URL possono essere lunghissimi (data: URL, redirect di login): li tronchiamo invece di scartarli.
+// URLs can be very long (data: URLs, login redirects): truncate them instead of dropping them.
 const MAX_URL_LENGTH = 8192;
 
 const isString = (v: unknown, max: number): v is string =>
   typeof v === 'string' && v.length > 0 && v.length <= max;
 
-// Postgres non accetta il carattere NUL nei testi.
+// Postgres does not accept the NUL character in text.
 const clean = (s: string) => s.replaceAll('\u0000', '');
 
 const optionalString = (v: unknown, max: number): string | null =>
@@ -47,8 +47,8 @@ function parseVisit(raw: unknown): IncomingVisit | null {
   };
 }
 
-// Restituisce l'upload validato oppure un messaggio d'errore. Le singole visite malformate
-// vengono scartate (e contate) invece di far fallire l'intero blocco.
+// Returns the validated upload or an error message. Individual malformed visits
+// are dropped (and counted) instead of failing the whole batch.
 function parseUpload(body: unknown): Upload | string {
   if (typeof body !== 'object' || body === null) return 'body must be a JSON object';
   const { deviceId, visits } = body as Record<string, unknown>;
@@ -61,13 +61,13 @@ function parseUpload(body: unknown): Upload | string {
   return { deviceId, visits: parsed, skipped: visits.length - parsed.length };
 }
 
-// Visite inserite per singola query (Postgres ha un limite di 65535 parametri per query).
+// Visits inserted per query (Postgres allows at most 65535 parameters per query).
 const INSERT_CHUNK = 1000;
 
 export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
   const app = express();
   app.use(express.json({ limit: '25mb' }));
-  // In locale; su Vercel public/ è servito direttamente dalla CDN, ma "/" arriva comunque qui.
+  // Local only; on Vercel public/ is served by the CDN, but "/" still reaches us.
   app.use(express.static(resolve(import.meta.dirname, '../public')));
   app.get('/', (_req, res) => res.redirect(302, '/index.html'));
 
@@ -75,8 +75,8 @@ export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
     res.json({ ok: true });
   });
 
-  // Riceve un blocco di visite. Le visite già presenti (stesso device + visitId)
-  // vengono ignorate, quindi l'estensione può ritentare un invio senza duplicati.
+  // Receives a batch of visits. Visits already stored (same device + visitId)
+  // are ignored, so the extension can retry an upload without creating duplicates.
   app.post('/api/visits', async (req, res) => {
     const upload = parseUpload(req.body);
     if (typeof upload === 'string') {
@@ -142,7 +142,7 @@ export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
     });
   });
 
-  // Cancella il device e (a cascata) tutte le sue visite.
+  // Deletes the device and (by cascade) all its visits.
   app.delete('/api/devices/:id', async (req, res) => {
     const result = await sql`DELETE FROM devices WHERE id = ${req.params.id}`;
     res.json({ deleted: result.count > 0 });
