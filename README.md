@@ -2,7 +2,7 @@
 
 **Get paid for the browsing data you choose to share.**
 
-Your browsing history is already collected and monetized by trackers, for free. TRACE is a Chrome extension that lets you share it on your own terms (explicit consent, local filtering, delete anytime) and pays you in **TRACE**, a fixed-supply token on Solana.
+Your browsing history is already collected and monetized by trackers, for free. TRACE is a Chrome extension that lets you share it on your own terms (explicit consent, local filtering, stop anytime) and pays you in **TRACE**, a fixed-supply token on Solana.
 
 - **Live MVP:** https://trace-rewards.vercel.app (download the extension and try it)
 - **Network:** Solana **Devnet**
