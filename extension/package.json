@@ -1,0 +1,18 @@
+{
+  "name": "trace-extension",
+  "version": "1.0.0",
+  "description": "Estensione Chrome: condivisione consensuale della history",
+  "scripts": {
+    "build": "tsc && vite build",
+    "watch": "vite build --watch",
+    "typecheck": "tsc"
+  },
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@types/chrome": "^0.3.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
+  },
+  "private": true
+}

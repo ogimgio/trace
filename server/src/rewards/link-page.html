@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TRACE · Collega wallet</title>
+  <link rel="icon" href="/link/logo.svg">
+  <style>
+    :root {
+      --bg: #ffffff; --fg: #16181d; --muted: #6b7180; --card: #f4f5f7; --border: #e2e4e9;
+      --accent: #9945ff; --accent-fg: #ffffff; --ok: #15803d; --error: #b91c1c;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #15161a; --fg: #ececf1; --muted: #9a9fac; --card: #1f2026; --border: #2e3038;
+        --accent: #a78bfa; --accent-fg: #15161a; --ok: #4ade80; --error: #f87171;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+    main { max-width: 480px; margin: 48px auto; padding: 0 16px; }
+    header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    header h1 { margin: 0; font-size: 20px; letter-spacing: 0.12em; }
+    h2 { margin: 0 0 8px; font-size: 17px; }
+    p { margin: 0 0 12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+    pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: var(--muted); }
+    button { width: 100%; padding: 11px 12px; border: 0; border-radius: 8px; background: var(--accent);
+             color: var(--accent-fg); font: inherit; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: default; }
+    a { color: var(--accent); }
+    code { font-size: 13px; overflow-wrap: anywhere; }
+    .muted { color: var(--muted); }
+    .error { color: var(--error); }
+    .ok { color: var(--ok); }
+    #msg:empty { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <header><img src="/link/logo.svg" alt="" width="32" height="32"><h1>TRACE</h1></header>
+    <div id="app"><p class="muted">Caricamento…</p></div>
+    <p id="msg"></p>
+  </main>
+  <script type="module">
+    const app = document.getElementById('app');
+    const msg = document.getElementById('msg');
+    const code = new URLSearchParams(location.search).get('code') ?? '';
+
+    const show = (text, cls = 'error') => { msg.className = cls; msg.textContent = text; };
+    const el = (tag, props = {}, ...children) => {
+      const e = Object.assign(document.createElement(tag), props);
+      e.append(...children);
+      return e;
+    };
+    const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+
+    // Phantom (e i wallet compatibili) espongono un provider con connect() e signMessage().
+    const provider = () => window.phantom?.solana ?? (window.solana?.signMessage ? window.solana : null);
+
+    const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
+
+    async function load() {
+      const res = await fetch(`/api/link/${encodeURIComponent(code)}`);
+      if (!res.ok) {
+        app.replaceChildren(el('div', { className: 'card' }, el('p', { className: 'error', textContent: 'Link non valido. Riparti dall\'estensione TRACE.' })));
+        return;
+      }
+      const challenge = await res.json();
+      if (challenge.status !== 'valid') {
+        const text = challenge.status === 'used' ? 'Questo link è già stato usato.' : 'Questo link è scaduto.';
+        app.replaceChildren(el('div', { className: 'card' }, el('p', { textContent: `${text} Riparti dall'estensione TRACE.` })));
+        return;
+      }
+
+      const linking = challenge.action === 'link';
+      const button = el('button', { textContent: linking ? 'Collega Phantom e firma' : `Firma con ${short(challenge.wallet)} e scollega` });
+      app.replaceChildren(
+        el('div', { className: 'card' },
+          el('h2', { textContent: linking ? 'Collega il tuo wallet Solana' : 'Scollega il wallet' }),
+          el('p', { textContent: linking
+            ? 'Firma un messaggio con Phantom per dimostrare che il wallet è tuo. Le ricompense TRACE arriveranno lì.'
+            : 'Per sicurezza solo il wallet collegato può scollegarsi. In Phantom seleziona questo account:' }),
+          ...(linking ? [] : [el('p', {}, el('code', { textContent: challenge.wallet }))]),
+          el('p', { className: 'muted', textContent: 'Firmare è gratis e non sposta fondi. Questo è il messaggio:' }),
+          el('pre', { textContent: challenge.message }),
+        ),
+        button,
+      );
+
+      button.addEventListener('click', async () => {
+        const wallet = provider();
+        if (!wallet) {
+          show('Phantom non trovato. Installalo da phantom.app, poi ricarica questa pagina.');
+          return;
+        }
+        button.disabled = true;
+        show('');
+        try {
+          const { publicKey } = await wallet.connect();
+          const address = publicKey.toString();
+          if (!linking && address !== challenge.wallet) {
+            throw new Error(`In Phantom è selezionato ${short(address)}: passa all'account ${short(challenge.wallet)} e riprova.`);
+          }
+          const { signature } = await wallet.signMessage(new TextEncoder().encode(challenge.message), 'utf8');
+          const res = await fetch(`/api/link/${encodeURIComponent(code)}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ wallet: address, signature: toBase64(signature) }),
+          });
+          const body = await res.json();
+          if (!res.ok) throw new Error(body.error ?? `Errore ${res.status}`);
+          done(body);
+        } catch (err) {
+          button.disabled = false;
+          // 4001 = l'utente ha rifiutato in Phantom
+          show(err?.code === 4001 ? 'Firma annullata.' : String(err?.message ?? err));
+        }
+      });
+    }
+
+    function done(result) {
+      if (result.action === 'unlink') {
+        app.replaceChildren(el('div', { className: 'card' },
+          el('h2', { className: 'ok', textContent: 'Wallet scollegato' }),
+          el('p', { textContent: 'Ora puoi collegarne un altro dall\'estensione TRACE. Puoi chiudere questa scheda.' })));
+        return;
+      }
+      const lines = [
+        el('h2', { className: 'ok', textContent: 'Wallet collegato' }),
+        el('p', {}, el('code', { textContent: result.wallet })),
+      ];
+      const w = result.welcome;
+      if (w?.status === 'sent') {
+        lines.push(el('p', { textContent: `Benvenuto! Ti abbiamo inviato ${w.amount} TRACE. ` },
+          el('a', { href: w.explorerUrl, target: '_blank', rel: 'noopener', textContent: 'Vedi la transazione ↗' })));
+      } else if (w) {
+        lines.push(el('p', { textContent: `Il bonus di benvenuto di ${w.amount} TRACE è in coda e arriverà a breve.` }));
+      }
+      lines.push(el('p', { className: 'muted', textContent: 'Puoi chiudere questa scheda: punti e pagamenti sono nell\'estensione.' }));
+      app.replaceChildren(el('div', { className: 'card' }, ...lines));
+    }
+
+    load().catch(() => show('Server non raggiungibile.'));
+  </script>
+</body>
+</html>
