@@ -19,10 +19,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function uploadVisits(deviceId: string, visits: VisitRecord[]) {
+// Gzip-compressed: URLs and titles shrink 5-8x, so a 5000-visit batch stays far below the host's request size limit.
+export async function uploadVisits(deviceId: string, visits: VisitRecord[]) {
+  const json = new Blob([JSON.stringify({ deviceId, visits })]).stream().pipeThrough(new CompressionStream('gzip'));
   return request<{ received: number; inserted: number }>('/api/visits', {
     method: 'POST',
-    body: JSON.stringify({ deviceId, visits }),
+    headers: { 'content-encoding': 'gzip' },
+    body: await new Response(json).arrayBuffer(),
   });
 }
 

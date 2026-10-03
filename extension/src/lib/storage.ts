@@ -17,6 +17,8 @@ export interface State {
   lastSyncAt: number | null;
   lastSyncResult: SyncResult | null;
   syncing: boolean;
+  // Visits uploaded so far in the running sync (shown in the popup).
+  syncProgress: { sent: number; total: number } | null;
 }
 
 const DEFAULTS: State = {
@@ -25,6 +27,7 @@ const DEFAULTS: State = {
   lastSyncAt: null,
   lastSyncResult: null,
   syncing: false,
+  syncProgress: null,
 };
 
 export async function getState(): Promise<State> {

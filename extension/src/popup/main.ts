@@ -168,7 +168,9 @@ async function renderActive(state: State): Promise<void> {
   app.innerHTML = `
     ${header}
     <p class="status ${state.syncing ? 'busy' : 'ok'}">
-      ${state.syncing ? 'Syncing…' : 'Active'}
+      ${state.syncing
+        ? `Syncing…${state.syncProgress ? ` ${state.syncProgress.sent.toLocaleString('en-US')} / ${state.syncProgress.total.toLocaleString('en-US')} visits` : ''}`
+        : 'Active'}
     </p>
 
     <section class="card">

@@ -3,9 +3,14 @@ import { RETRY_ALARM, RETRY_DELAY_MINUTES, SYNC_ALARM, SYNC_INTERVAL_MINUTES, UP
 import { collectVisitsSince } from '../lib/history';
 import { ensureDeviceId, getState, setState, type SyncTrigger } from '../lib/storage';
 
-// A freshly started service worker has no sync in progress: reset a flag left
-// at true if the previous worker was killed midway.
-void setState({ syncing: false });
+// A freshly started service worker has no sync in progress. If the flag is still set, Chrome stopped the
+// previous worker midway through a sync: clear it and resume shortly (progress was saved batch by batch).
+void (async () => {
+  const { syncing } = await getState();
+  if (!syncing) return;
+  await setState({ syncing: false, syncProgress: null });
+  await chrome.alarms.create(RETRY_ALARM, { delayInMinutes: 1 });
+})();
 
 let currentSync: Promise<void> | null = null;
 
@@ -39,9 +44,15 @@ async function doSync(trigger: SyncTrigger): Promise<void> {
     const serverLast = stats?.lastVisitAt ?? 0;
     const visits = await collectVisitsSince(Math.min(lastSyncAt ?? serverLast, serverLast));
     total = visits.length;
+    await setState({ syncProgress: { sent: 0, total } });
     for (let i = 0; i < visits.length; i += UPLOAD_BATCH_SIZE) {
-      const result = await uploadVisits(deviceId, visits.slice(i, i + UPLOAD_BATCH_SIZE));
+      const batch = visits.slice(i, i + UPLOAD_BATCH_SIZE);
+      const result = await uploadVisits(deviceId, batch);
       inserted += result.inserted;
+      // Save progress after each batch (visits are sorted by time): if Chrome stops the worker, the next
+      // run resumes from here. Writing to extension storage also counts as activity, which keeps the worker
+      // alive (Chrome stops it after 30 seconds without extension API calls, and network requests don't count).
+      await setState({ lastSyncAt: batch[batch.length - 1].visitTime, syncProgress: { sent: i + batch.length, total } });
     }
     await setState({
       lastSyncAt: startedAt,
@@ -49,13 +60,13 @@ async function doSync(trigger: SyncTrigger): Promise<void> {
     });
     await chrome.alarms.clear(RETRY_ALARM);
   } catch (err) {
-    // lastSyncAt stays unchanged: the next attempt resends everything and the server drops duplicates.
+    // lastSyncAt stays at the last uploaded batch: the next attempt resumes there and the server drops duplicates.
     await setState({
       lastSyncResult: { at: Date.now(), trigger, ok: false, visits: total, inserted, error: String(err) },
     });
     await chrome.alarms.create(RETRY_ALARM, { delayInMinutes: RETRY_DELAY_MINUTES });
   } finally {
-    await setState({ syncing: false });
+    await setState({ syncing: false, syncProgress: null });
   }
 }
 

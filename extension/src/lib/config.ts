@@ -14,4 +14,4 @@ export const SYNC_ALARM = 'history-sync';
 export const RETRY_ALARM = 'history-sync-retry';
 
 // Visits per server request (the server accepts at most 5000).
-export const UPLOAD_BATCH_SIZE = 1000;
+export const UPLOAD_BATCH_SIZE = 5000;
