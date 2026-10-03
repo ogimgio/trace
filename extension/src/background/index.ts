@@ -34,8 +34,10 @@ async function doSync(trigger: SyncTrigger): Promise<void> {
   try {
     // Resume from what the server actually has, not only from what we remember: if earlier uploads went
     // elsewhere (another server, a reinstall) the gap gets filled. The server drops duplicates.
+    // Unknown device on the server → everything; nothing remembered locally → trust the server.
     const stats = await fetchStats(deviceId);
-    const visits = await collectVisitsSince(Math.min(lastSyncAt ?? 0, stats?.lastVisitAt ?? 0));
+    const serverLast = stats?.lastVisitAt ?? 0;
+    const visits = await collectVisitsSince(Math.min(lastSyncAt ?? serverLast, serverLast));
     total = visits.length;
     for (let i = 0; i < visits.length; i += UPLOAD_BATCH_SIZE) {
       const result = await uploadVisits(deviceId, visits.slice(i, i + UPLOAD_BATCH_SIZE));
