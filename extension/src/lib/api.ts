@@ -37,6 +37,8 @@ export async function fetchStats(deviceId: string): Promise<DeviceStats | null> 
 export interface RewardsInfo {
   symbol: string;
   wallet: string | null;
+  // False for wallets linked before the device check (Fingerprint): they must verify again to keep earning.
+  deviceChecked: boolean;
   totalReceived: string;
   currentWeek: {
     epoch: number;

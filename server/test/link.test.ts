@@ -5,6 +5,8 @@ import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
 import { Keypair, type PublicKey } from '@solana/web3.js';
 import { createApp } from '../src/api.ts';
+import type { Sql } from '../src/db.ts';
+import type { DeviceCheck } from '../src/fingerprint.ts';
 import { startTestDb } from './db.ts';
 import { CHALLENGE_TTL_MS } from '../src/rewards/link.ts';
 import { EPOCH_MS } from '../src/rewards/policy.ts';
@@ -27,8 +29,19 @@ function signWith(keypair: Keypair, message: string): string {
 
 let base = '';
 let close: () => Promise<void>;
+let sql: Sql;
 let clock = Date.now();
 const sent: string[] = [];
+
+// Fake Fingerprint: the event ID is "<visitorId>.<n>"; visitors starting with "bot" are refused.
+const deviceCheck: DeviceCheck = {
+  browser: { apiKey: 'public-key', region: 'eu' },
+  async check(eventId) {
+    const visitorId = eventId.slice(0, eventId.lastIndexOf('.'));
+    return visitorId.startsWith('bot') ? { ok: false, error: 'automated browser detected' } : { ok: true, visitorId };
+  },
+};
+let eventSeq = 0;
 
 before(async () => {
   const rewarder = {
@@ -38,7 +51,8 @@ before(async () => {
     },
   };
   const db = await startTestDb();
-  const server = createApp(db.sql, { rewarder, now: () => clock, cronSecret: 'cron-test' }).listen(0, '127.0.0.1');
+  sql = db.sql;
+  const server = createApp(db.sql, { rewarder, now: () => clock, cronSecret: 'cron-test', deviceCheck }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
@@ -55,11 +69,11 @@ const json = (method: string, body?: unknown) => ({
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
-// Device with 8 active days of history: eligible for the welcome bonus.
+// Device with 8 active days of its own history: eligible for the welcome bonus.
 async function newDevice(id: string) {
   const visits = [];
   for (let d = 1; d <= 8; d++) for (let i = 0; i < 5; i++) {
-    visits.push({ visitId: `${d}-${i}`, url: `https://x.com/${d}/${i}`, visitTime: clock - d * DAY + i });
+    visits.push({ visitId: `${d}-${i}`, url: `https://x.com/${id}/${d}/${i}`, visitTime: clock - d * DAY + i });
   }
   await fetch(`${base}/api/visits`, json('POST', { deviceId: id, visits }));
 }
@@ -69,11 +83,13 @@ async function challenge(deviceId: string, action: 'link' | 'unlink' = 'link') {
   return { status: res.status, body: await res.json() };
 }
 
-async function submit(code: string, keypair: Keypair, message?: string) {
+// `browser`: the Fingerprint visitor of the signing page (null: no device check sent).
+async function submit(code: string, keypair: Keypair, { message, browser = `browser-${code}` }: { message?: string; browser?: string | null } = {}) {
   const info = await (await fetch(`${base}/api/link/${code}`)).json();
   const res = await fetch(`${base}/api/link/${code}`, json('POST', {
     wallet: keypair.publicKey.toBase58(),
     signature: signWith(keypair, message ?? info.message),
+    ...(browser === null ? {} : { deviceEventId: `${browser}.${eventSeq++}` }),
   }));
   return { status: res.status, body: await res.json() };
 }
@@ -113,7 +129,7 @@ test('a wrong signature is rejected and does not burn the code', async () => {
   }));
   assert.equal(forged.status, 401);
   // A message different from the challenge's
-  assert.equal((await submit(c.code, alice, info.message.replace('dev-2', 'dev-X'))).status, 401);
+  assert.equal((await submit(c.code, alice, { message: info.message.replace('dev-2', 'dev-X') })).status, 401);
   // Malformed signature
   const garbage = await fetch(`${base}/api/link/${c.code}`, json('POST', { wallet: alice.publicKey.toBase58(), signature: 'AAAA' }));
   assert.equal(garbage.status, 401);
@@ -185,4 +201,69 @@ test('challenge errors and the signing page', async () => {
 
   const r = await rewards('dev-6');
   assert.equal(r.currentWeek.endsAt - r.currentWeek.startsAt, EPOCH_MS);
+});
+
+test('linking requires a passing device check, and a failed check does not use up the code', async () => {
+  await newDevice('dev-7');
+  const alice = Keypair.generate();
+  const { body: c } = await challenge('dev-7');
+  const info = await (await fetch(`${base}/api/link/${c.code}`)).json();
+  assert.deepEqual(info.deviceCheck, { apiKey: 'public-key', region: 'eu' });
+
+  assert.equal((await submit(c.code, alice, { browser: null })).status, 400);
+  const bot = await submit(c.code, alice, { browser: 'bot-farm' });
+  assert.equal(bot.status, 403);
+  assert.match(bot.body.error, /automated browser/);
+
+  const ok = await submit(c.code, alice, { browser: 'laptop-7' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.deviceChecked, true);
+  assert.equal((await rewards('dev-7')).deviceChecked, true);
+});
+
+test('the welcome bonus is paid once per browser: reinstalling with a new wallet does not earn it again', async () => {
+  await newDevice('dev-8a');
+  const first = await submit((await challenge('dev-8a')).body.code, Keypair.generate(), { browser: 'pc-8' });
+  assert.equal(first.body.welcome.status, 'sent');
+
+  // Same browser, new install (new device ID), new wallet
+  await newDevice('dev-8b');
+  const again = await submit((await challenge('dev-8b')).body.code, Keypair.generate(), { browser: 'pc-8' });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.welcome, null);
+});
+
+test('devices linked before the device check can verify again, with the same wallet only', async () => {
+  await newDevice('dev-9');
+  const alice = Keypair.generate();
+  await sql`UPDATE devices SET wallet_address = ${alice.publicKey.toBase58()}, visitor_id = NULL WHERE id = 'dev-9'`;
+  assert.equal((await rewards('dev-9')).deviceChecked, false);
+
+  const { status, body: c } = await challenge('dev-9', 'link');
+  assert.equal(status, 200);
+  assert.equal((await submit(c.code, Keypair.generate(), { browser: 'pc-9' })).status, 403);
+  const ok = await submit(c.code, alice, { browser: 'pc-9' });
+  assert.equal(ok.status, 200);
+  assert.equal((await rewards('dev-9')).deviceChecked, true);
+  // Verified: a second link is refused until unlinking
+  assert.equal((await challenge('dev-9', 'link')).status, 409);
+});
+
+test('without Fingerprint configured, linking is refused', async () => {
+  const server = createApp(sql, { now: () => clock }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const other = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    await newDevice('dev-10');
+    const { code } = await (await fetch(`${other}/api/devices/dev-10/link-challenge`, json('POST', { action: 'link' }))).json();
+    const info = await (await fetch(`${other}/api/link/${code}`)).json();
+    assert.equal(info.deviceCheck, null);
+    const alice = Keypair.generate();
+    const res = await fetch(`${other}/api/link/${code}`, json('POST', {
+      wallet: alice.publicKey.toBase58(), signature: signWith(alice, info.message), deviceEventId: 'pc.1',
+    }));
+    assert.equal(res.status, 503);
+  } finally {
+    server.close();
+  }
 });

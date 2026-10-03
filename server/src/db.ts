@@ -75,6 +75,25 @@ export const SCHEMA = `
     used_at     bigint
   );
 
+  -- Device check (Fingerprint): the visitor ID of the browser that linked the wallet. Devices linked before the
+  -- check existed have none and must verify again to keep earning (rewards/routes.ts).
+  ALTER TABLE devices ADD COLUMN IF NOT EXISTS visitor_id text;
+  CREATE INDEX IF NOT EXISTS devices_visitor ON devices (visitor_id);
+
+  -- The welcome bonus is paid once per browser too: reinstalling the extension does not earn it again.
+  ALTER TABLE reward_payouts ADD COLUMN IF NOT EXISTS visitor_id text;
+  CREATE UNIQUE INDEX IF NOT EXISTS reward_payouts_one_welcome_per_visitor ON reward_payouts (visitor_id)
+    WHERE kind = 'welcome' AND visitor_id IS NOT NULL;
+
+  -- Each Fingerprint event can be used once.
+  CREATE TABLE IF NOT EXISTS fingerprint_events (
+    event_id  text PRIMARY KEY,
+    used_at   bigint NOT NULL
+  );
+
+  -- Finds the same visit uploaded by another device (rewards/settle.ts: each visit is paid once).
+  CREATE INDEX IF NOT EXISTS visits_time ON visits (visit_time);
+
   -- Supabase exposes "public" tables via its API with the anon key. With RLS enabled and no policies
   -- that access is closed: only the server, which connects as the table owner, reads and writes.
   ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
@@ -83,6 +102,7 @@ export const SCHEMA = `
   ALTER TABLE reward_epochs ENABLE ROW LEVEL SECURITY;
   ALTER TABLE reward_payouts ENABLE ROW LEVEL SECURITY;
   ALTER TABLE wallet_challenges ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE fingerprint_events ENABLE ROW LEVEL SECURITY;
 `;
 
 export function connect(url: string, options: postgres.Options<{}> = {}): Sql {

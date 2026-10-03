@@ -81,6 +81,12 @@
     .stat strong { display: block; font: 700 clamp(28px, 3.4vw, 42px)/1.1 var(--display); color: var(--sky); }
     .stat span { color: #b8bcc8; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; }
 
+    /* Trust band */
+    .trust { background: var(--paper); border-bottom: var(--line); }
+    .trust-row { display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; padding: 18px 20px; font-weight: 500; }
+    .trust-row img { display: block; height: 24px; width: auto; }
+    .trust-note { color: var(--muted); font-size: 15px; font-weight: 400; }
+
     /* Sections */
     section { padding: 96px 0; }
     .eyebrow { font: 700 14px var(--body); text-transform: uppercase; letter-spacing: 0.12em; color: var(--sky-deep); margin: 0 0 12px; }
@@ -266,6 +272,14 @@
     </div>
   </div>
 
+  <div class="trust">
+    <div class="wrap trust-row">
+      <span>Bot and farm protection by</span>
+      <a href="https://fingerprint.com" target="_blank" rel="noopener" aria-label="Fingerprint"><img src="/fingerprint-logo.svg" alt="Fingerprint" width="138" height="24"></a>
+      <span class="trust-note">One browser can't farm rewards with many wallets, and bots or virtual machines can't link at all.</span>
+    </div>
+  </div>
+
   <section id="how">
     <div class="wrap">
       <p class="eyebrow">How it works</p>
@@ -280,7 +294,7 @@
         <div class="card step">
           <div class="step-num">2</div>
           <h3>Link your wallet</h3>
-          <p>Sign one message with Phantom to prove the wallet is yours. It's free, moves no funds, and unlocks a 500 TRACE welcome bonus right away.</p>
+          <p>Sign one message with Phantom to prove the wallet is yours, while a quick device check keeps bots out. It's free, moves no funds, and unlocks a 500 TRACE welcome bonus right away.</p>
         </div>
         <div class="card step">
           <div class="step-num">3</div>
@@ -300,7 +314,7 @@
         <div class="rules">
           <div class="rule"><div class="rule-icon">🌐</div><div><h3>Unique pages count, up to 1,000</h3><p>Domain plus path, without the query string. A script opening thousands of URLs gains nothing past the cap.</p></div></div>
           <div class="rule"><div class="rule-icon">📅</div><div><h3>+100 points per active day</h3><p>Any day with at least 5 visits. Consistency matters more than volume, and it's hard to fake.</p></div></div>
-          <div class="rule"><div class="rule-icon">🎁</div><div><h3>500 TRACE welcome bonus</h3><p>Sent instantly when you link your wallet, if your history has 7 active days. Once per device and per wallet.</p></div></div>
+          <div class="rule"><div class="rule-icon">🎁</div><div><h3>500 TRACE welcome bonus</h3><p>Sent instantly when you link your wallet, if your history has 7 active days. Once per browser and per wallet.</p></div></div>
           <div class="rule"><div class="rule-icon">📉</div><div><h3>A budget that never runs dry</h3><p>5M TRACE in week one, 1% less every week. All weekly budgets add up to exactly the 500M reward pool.</p></div></div>
         </div>
 
@@ -349,7 +363,7 @@
       <div class="features">
         <div class="card feature"><span class="feature-badge">Consent first</span><h3>Opt-in, revocable anytime</h3><p>Chrome's history permission is optional and only requested when you accept. Withdraw it with one click.</p></div>
         <div class="card feature"><span class="feature-badge">Filtered locally</span><h3>Private stuff stays private</h3><p>Local files, browser-internal pages, localhost and private-network addresses never leave your browser.</p></div>
-        <div class="card feature"><span class="feature-badge">Signature-locked</span><h3>Nobody can redirect your rewards</h3><p>Your wallet is linked by signature, and changing it requires a signature from that same wallet.</p></div>
+        <div class="card feature"><span class="feature-badge">Signature-locked</span><h3>Nobody can redirect your rewards</h3><p>Your wallet is linked by signature, and changing it requires a signature from that same wallet. Each visit is paid once, so the same history can't be cashed in twice.</p></div>
         <div class="card feature"><span class="feature-badge">Fairly paid</span><h3>Every payout is public</h3><p>What you share earns TRACE every week, and every payout is a Solana transaction anyone can verify.</p></div>
       </div>
     </div>

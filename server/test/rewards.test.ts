@@ -62,9 +62,9 @@ async function seed() {
   const { startsAt } = epochRange(0);
   const wallets = { a: Keypair.generate().publicKey.toBase58(), b: Keypair.generate().publicKey.toBase58() };
   await db`INSERT INTO devices ${db([
-    { id: 'dev-a', created_at: 0, wallet_address: wallets.a },
-    { id: 'dev-b', created_at: 0, wallet_address: wallets.b },
-    { id: 'dev-nowallet', created_at: 0, wallet_address: null },
+    { id: 'dev-a', created_at: 0, wallet_address: wallets.a, visitor_id: 'browser-a' },
+    { id: 'dev-b', created_at: 0, wallet_address: wallets.b, visitor_id: 'browser-b' },
+    { id: 'dev-nowallet', created_at: 0, wallet_address: null, visitor_id: null },
   ])}`;
   const rows: Record<string, unknown>[] = [];
   const browse = (device: string, days: number, pagesPerDay: number, from = startsAt) => {
@@ -136,12 +136,14 @@ test('sendPayouts marks sent, retryable failures, and unknown outcomes separatel
 test('welcome bonus is granted once per device and once per wallet', async () => {
   const { wallets, afterEpoch0 } = await seed();
   // dev-a has 7 active days: bonus right away
-  const row = await grantWelcome(db, 'dev-a', wallets.a, D, afterEpoch0);
+  const row = await grantWelcome(db, 'dev-a', wallets.a, 'browser-a', D, afterEpoch0);
   assert.equal(row?.status, 'pending');
   assert.equal(row?.amount, toUnits(500n, D).toString());
-  assert.equal(await grantWelcome(db, 'dev-a', wallets.a, D, afterEpoch0), null);
+  assert.equal(await grantWelcome(db, 'dev-a', wallets.a, 'browser-a', D, afterEpoch0), null);
   // The same wallet on another device does not get a second bonus
-  assert.equal(await grantWelcome(db, 'dev-nowallet', wallets.a, D, afterEpoch0), null);
+  assert.equal(await grantWelcome(db, 'dev-nowallet', wallets.a, 'browser-x', D, afterEpoch0), null);
+  // Nor does the same browser with another wallet (reinstall + new wallet)
+  assert.equal(await grantWelcome(db, 'dev-nowallet', Keypair.generate().publicKey.toBase58(), 'browser-a', D, afterEpoch0), null);
   // And settling the week does not pay it again
   assert.ok(!(await planEpoch(db, 0, D)).payouts.some((p) => p.deviceId === 'dev-a' && p.kind === 'welcome'));
 });
@@ -150,7 +152,7 @@ test('welcome bonus waits for enough history', async () => {
   const { wallets } = await seed();
   const { startsAt } = epochRange(0);
   // Halfway through the first week dev-a has only 3 active days
-  assert.equal(await grantWelcome(db, 'dev-a', wallets.a, D, startsAt + 3 * DAY), null);
+  assert.equal(await grantWelcome(db, 'dev-a', wallets.a, 'browser-a', D, startsAt + 3 * DAY), null);
 });
 
 test('concurrent sendPayouts never pay the same row twice', async () => {
@@ -174,4 +176,25 @@ test('visits are purged after the retention period, payouts are kept', async () 
   assert.equal(left.n, 0);
   const [payouts] = await db`SELECT COUNT(*) AS n FROM reward_payouts`;
   assert.equal(payouts.n, 4);
+});
+
+test('the same visits uploaded by another device are paid once, to the first uploader', async () => {
+  const { afterEpoch0 } = await seed();
+  // A reinstall (new device ID) re-uploads dev-a's history later, with another wallet
+  await db`INSERT INTO devices (id, created_at, wallet_address, visitor_id)
+           VALUES ('dev-copy', 0, ${Keypair.generate().publicKey.toBase58()}, 'browser-copy')`;
+  await db`INSERT INTO visits (device_id, visit_id, url, visit_time, received_at)
+           SELECT 'dev-copy', visit_id, url, visit_time, 100 FROM visits WHERE device_id = 'dev-a'`;
+  const plan = await planEpoch(db, 0, D);
+  assert.ok(!plan.payouts.some((p) => p.deviceId === 'dev-copy'));
+  assert.equal(plan.payouts.find((p) => p.deviceId === 'dev-a' && p.kind === 'weekly')?.points, 840);
+});
+
+test('devices without a device check are not paid', async () => {
+  const { afterEpoch0 } = await seed();
+  await db`UPDATE devices SET visitor_id = NULL WHERE id = 'dev-a'`;
+  const plan = await planEpoch(db, 0, D);
+  assert.ok(!plan.payouts.some((p) => p.deviceId === 'dev-a'));
+  assert.ok(plan.payouts.some((p) => p.deviceId === 'dev-b'));
+  void afterEpoch0;
 });

@@ -40,6 +40,7 @@
     h2.ok { color: var(--fg); }
     h2.ok::before { content: '✓'; display: inline-grid; place-items: center; width: 34px; height: 34px; margin-right: 10px; border: 2.5px solid var(--border); border-radius: 50%; background: var(--accent); font-size: 18px; vertical-align: 3px; }
     #msg { font-weight: 500; }
+    .protected { margin: 14px 4px 0; font-size: 13px; color: var(--muted); text-align: center; }
     #msg:empty { display: none; }
   </style>
 </head>
@@ -67,6 +68,11 @@
 
     const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
 
+    // Device check (Fingerprint): loads the agent with the public key; at signing time it returns this visit's
+    // event ID, which the server verifies with the secret key. Keeps bots and virtual machines out.
+    const startDeviceCheck = (config) =>
+      import(`https://fpjscdn.net/v4/${config.apiKey}`).then((Fingerprint) => Fingerprint.start({ region: config.region }));
+
     async function load() {
       const res = await fetch(`/api/link/${encodeURIComponent(code)}`);
       if (!res.ok) {
@@ -81,18 +87,30 @@
       }
 
       const linking = challenge.action === 'link';
+      // A wallet linked before the device check existed: same wallet, signed again from this browser.
+      const reverify = linking && Boolean(challenge.wallet);
+      const agent = linking && challenge.deviceCheck ? startDeviceCheck(challenge.deviceCheck) : null;
+      agent?.catch(() => {}); // reported when the user clicks
+
       const button = el('button', { textContent: linking ? 'Connect Phantom and sign' : `Sign with ${short(challenge.wallet)} and unlink` });
+      const title = reverify ? 'Verify your device' : linking ? 'Link your Solana wallet' : 'Unlink wallet';
+      const intro = reverify
+        ? 'TRACE now checks each browser to keep bots out. Sign once more with the wallet already linked to keep earning. Select this account in Phantom:'
+        : linking
+          ? 'Sign a message with Phantom to prove the wallet is yours. Your TRACE rewards will be sent there.'
+          : 'For security, only the linked wallet can unlink itself. Select this account in Phantom:';
       app.replaceChildren(
         el('div', { className: 'card' },
-          el('h2', { textContent: linking ? 'Link your Solana wallet' : 'Unlink wallet' }),
-          el('p', { textContent: linking
-            ? 'Sign a message with Phantom to prove the wallet is yours. Your TRACE rewards will be sent there.'
-            : 'For security, only the linked wallet can unlink itself. Select this account in Phantom:' }),
-          ...(linking ? [] : [el('p', {}, el('code', { textContent: challenge.wallet }))]),
+          el('h2', { textContent: title }),
+          el('p', { textContent: intro }),
+          ...(challenge.wallet ? [el('p', {}, el('code', { textContent: challenge.wallet }))] : []),
           el('p', { className: 'muted', textContent: 'Signing is free and moves no funds. This is the message:' }),
           el('pre', { textContent: challenge.message }),
         ),
         button,
+        ...(linking ? [el('p', { className: 'protected' },
+          'Bot protection by ', el('a', { href: 'https://fingerprint.com', target: '_blank', rel: 'noopener', textContent: 'Fingerprint' }),
+          ': it checks this browser once, so one machine cannot farm rewards with many wallets.')] : []),
       );
 
       button.addEventListener('click', async () => {
@@ -106,14 +124,22 @@
         try {
           const { publicKey } = await wallet.connect();
           const address = publicKey.toString();
-          if (!linking && address !== challenge.wallet) {
+          if (challenge.wallet && address !== challenge.wallet) {
             throw new Error(`Phantom has ${short(address)} selected: switch to account ${short(challenge.wallet)} and try again.`);
           }
           const { signature } = await wallet.signMessage(new TextEncoder().encode(challenge.message), 'utf8');
+          let deviceEventId;
+          if (agent) {
+            try {
+              deviceEventId = (await (await agent).get()).event_id;
+            } catch {
+              throw new Error('The device check could not run. Turn off ad or tracker blockers for this page, reload and try again.');
+            }
+          }
           const res = await fetch(`/api/link/${encodeURIComponent(code)}`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ wallet: address, signature: toBase64(signature) }),
+            body: JSON.stringify({ wallet: address, signature: toBase64(signature), deviceEventId }),
           });
           const body = await res.json();
           if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);

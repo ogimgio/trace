@@ -56,6 +56,19 @@ body.tab .lead {
   font-size: 17px;
 }
 
+/* Shown when the linked wallet still has to pass the device check. */
+.notice {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #ffd66b;
+}
+
+.notice p {
+  margin: 0;
+}
+
 /* Big headline, only on the welcome tab (the popup is too small for it). */
 .hero-title {
   display: none;

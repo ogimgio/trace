@@ -6,8 +6,9 @@ import {
   SETTLEMENT_GRACE_MS, WELCOME_MIN_ACTIVE_DAYS, epochAt, epochBudget, epochRange,
 } from './policy.ts';
 import { purgeExpiredVisits } from '../retention.ts';
-import { scoreVisits, type ScoredVisit } from './points.ts';
-import { grantWelcome, readyEpochs, sendPayouts, settleEpoch, type PayoutRow } from './settle.ts';
+import type { DeviceCheck } from '../fingerprint.ts';
+import { scoreVisits } from './points.ts';
+import { grantWelcome, ownedVisits, readyEpochs, sendPayouts, settleEpoch, type PayoutRow } from './settle.ts';
 import {
   challengeMessage, consumeChallenge, createChallenge, getChallenge, verifyWalletSignature,
   type LinkAction,
@@ -21,16 +22,19 @@ export interface RewardsOptions {
   now?: () => number;
   // Protects /api/cron/daily: Vercel Cron sends "Authorization: Bearer <CRON_SECRET>".
   cronSecret?: string;
+  // Device check (Fingerprint), required to link a wallet. Without it linking is refused (fail closed).
+  deviceCheck?: DeviceCheck;
 }
 
-type Device = { id: string; wallet_address: string | null };
+type Device = { id: string; wallet_address: string | null; visitor_id: string | null };
 
 export function createRewardsRouter(
-  sql: Sql, { rewarder, decimals = 6, symbol = 'TRACE', now = Date.now, cronSecret }: RewardsOptions = {},
+  sql: Sql, { rewarder, decimals = 6, symbol = 'TRACE', now = Date.now, cronSecret, deviceCheck }: RewardsOptions = {},
 ) {
   const router = Router();
 
-  const getDevice = async (id: string) => (await sql<Device[]>`SELECT id, wallet_address FROM devices WHERE id = ${id}`)[0];
+  const getDevice = async (id: string) =>
+    (await sql<Device[]>`SELECT id, wallet_address, visitor_id FROM devices WHERE id = ${id}`)[0];
   const setWallet = (id: string, wallet: string | null) => sql`UPDATE devices SET wallet_address = ${wallet} WHERE id = ${id}`;
 
   const tokens = (units: bigint) => formatUnits(units, decimals);
@@ -54,7 +58,8 @@ export function createRewardsRouter(
       res.status(404).json({ error: 'device not found' });
       return;
     }
-    if (action === 'link' && device.wallet_address) {
+    // A device linked before the device check existed may link again, with the same wallet, to get verified.
+    if (action === 'link' && device.wallet_address && device.visitor_id) {
       res.status(409).json({ error: 'a wallet is already linked: unlink it first' });
       return;
     }
@@ -62,7 +67,8 @@ export function createRewardsRouter(
       res.status(409).json({ error: 'no wallet linked' });
       return;
     }
-    const challenge = await createChallenge(sql, device.id, action, action === 'unlink' ? device.wallet_address : null, now());
+    // For 'unlink', and for re-verifying an unchecked device, the challenge records the wallet that must sign.
+    const challenge = await createChallenge(sql, device.id, action, device.wallet_address, now());
     res.json({ code: challenge.code, action, expiresAt: challenge.expires_at, url: `/link.html?code=${challenge.code}` });
   });
 
@@ -81,6 +87,8 @@ export function createRewardsRouter(
       expiresAt: challenge.expires_at,
       status,
       message: challengeMessage(challenge),
+      // Fingerprint agent parameters for the device check (public key, not secret).
+      deviceCheck: challenge.action === 'link' ? deviceCheck?.browser ?? null : null,
     });
   });
 
@@ -105,6 +113,36 @@ export function createRewardsRouter(
       res.status(401).json({ error: 'invalid signature' });
       return;
     }
+    if (challenge.action === 'link' && challenge.wallet && wallet.toBase58() !== challenge.wallet) {
+      res.status(403).json({ error: `verify this device with the wallet already linked to it (${challenge.wallet})` });
+      return;
+    }
+
+    // Device check before using up the code: if it fails, the user can reload the page and try again.
+    let visitorId: string | null = null;
+    if (challenge.action === 'link') {
+      if (!deviceCheck) {
+        res.status(503).json({ error: 'device check is not configured: wallets cannot be linked right now' });
+        return;
+      }
+      const eventId = req.body?.deviceEventId;
+      if (typeof eventId !== 'string' || eventId === '') {
+        res.status(400).json({ error: 'device check missing: reload the page and try again' });
+        return;
+      }
+      const verdict = await deviceCheck.check(eventId, now());
+      if (!verdict.ok) {
+        res.status(403).json({ error: verdict.error });
+        return;
+      }
+      const fresh = await sql`INSERT INTO fingerprint_events (event_id, used_at) VALUES (${eventId}, ${now()}) ON CONFLICT DO NOTHING`;
+      if (fresh.count === 0) {
+        res.status(409).json({ error: 'device check already used: reload the page' });
+        return;
+      }
+      visitorId = verdict.visitorId;
+    }
+
     if (!(await consumeChallenge(sql, challenge.code, now()))) {
       res.status(410).json({ error: 'code already used or expired: start again from the extension' });
       return;
@@ -130,10 +168,10 @@ export function createRewardsRouter(
       res.status(409).json({ error: 'a wallet is already linked: unlink it first' });
       return;
     }
-    await setWallet(device.id, wallet.toBase58());
-    let welcome = await grantWelcome(sql, device.id, wallet.toBase58(), decimals, now());
+    await sql`UPDATE devices SET wallet_address = ${wallet.toBase58()}, visitor_id = ${visitorId} WHERE id = ${device.id}`;
+    let welcome = await grantWelcome(sql, device.id, wallet.toBase58(), visitorId!, decimals, now());
     if (welcome && rewarder) welcome = (await sendPayouts(sql, rewarder, { ids: [welcome.id] }))[0] ?? welcome;
-    res.json({ action: 'link', wallet: wallet.toBase58(), welcome: welcome ? payoutJson(welcome) : null });
+    res.json({ action: 'link', wallet: wallet.toBase58(), deviceChecked: true, welcome: welcome ? payoutJson(welcome) : null });
   });
 
   // The page where Phantom signs is public/link.html (Phantom does not work in extension pages).
@@ -147,16 +185,15 @@ export function createRewardsRouter(
 
     const epoch = epochAt(now());
     const { startsAt, endsAt } = epochRange(epoch);
-    const score = scoreVisits(await sql<ScoredVisit[]>`
-      SELECT url, visit_time AS "visitTime" FROM visits
-      WHERE device_id = ${device.id} AND visit_time >= ${startsAt} AND visit_time < ${endsAt}
-    `);
+    const score = scoreVisits(await ownedVisits(sql, device.id, startsAt, endsAt));
     const payouts = await sql<PayoutRow[]>`SELECT * FROM reward_payouts WHERE device_id = ${device.id} ORDER BY epoch DESC, id DESC`;
     const received = payouts.filter((p) => p.status === 'sent').reduce((a, p) => a + BigInt(p.amount), 0n);
 
     res.json({
       symbol,
       wallet: device.wallet_address,
+      // Only wallets linked with the device check earn rewards; older links must verify again.
+      deviceChecked: device.visitor_id !== null,
       totalReceived: tokens(received),
       // Current week estimate: points are final, the amount depends on how many points others earn.
       currentWeek: {

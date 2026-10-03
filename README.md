@@ -47,8 +47,20 @@ Every week (Monday 00:00 UTC) a fixed budget is split among users in proportion 
 - **Points** = min(unique pages, 1000) + 100 × active days (days with at least 5 visits). Max 1,700 per week. A page is domain + path without the query string, so generated URLs (`?q=1`, `?q=2`, …) count once.
 - **Budget** starts at 5,000,000 TRACE and shrinks 1% per week. The sum of all weekly budgets is exactly the 500M pool, so it never runs out.
 - **Cap** of 1 TRACE per point: with few users nobody gets millions; unused budget stays in the pool.
-- **Welcome bonus** of 500 TRACE, once per device and once per wallet, sent instantly when the wallet is linked. Past history is not paid per visit, since it is the easiest to fake.
+- **Welcome bonus** of 500 TRACE, once per browser, per device and per wallet, sent instantly when the wallet is linked. Past history is not paid per visit, since it is the easiest to fake.
+- **Each visit is paid once.** The same visit (URL and exact time) uploaded by several devices, e.g. after reinstalling the extension or by copying a history to another wallet, counts only for the device that uploaded it first.
 - **Settlement** happens after the week ends plus an 8-day grace period, so devices that were offline for a few days can still upload that week's visits. A settled week is final. A daily Vercel Cron job settles and pays automatically.
+
+## Device check (Fingerprint)
+
+Linking a wallet requires a [Fingerprint](https://fingerprint.com) device check (`server/src/fingerprint.ts`, adapted from the `dev_eb` branch):
+
+1. The signing page loads Fingerprint's agent with the public key and, at signing time, gets an event ID for the visit. It posts it with the wallet signature.
+2. The server fetches the event with the secret key (`GET /v4/events/{event_id}`), so the page cannot fake it. It refuses bots, tampered browsers, virtual machines, emulators, replayed or stale events (older than 10 minutes); each event ID counts once.
+3. The event's visitor ID (a stable browser identifier that survives reinstalling the extension, cleared cookies and IP changes) is stored on the device. The welcome bonus is paid once per visitor ID, so reinstalling the extension or switching wallet does not earn it again.
+4. Only devices that passed the check are paid. Wallets linked before it existed see a "Verify your device" prompt in the extension and sign again with the same wallet.
+
+Without the Fingerprint keys the server refuses to link wallets (fail closed). Switching wallet stays allowed: rewards are tied to the data, and each visit is paid once.
 
 ## Data and privacy
 
@@ -77,7 +89,7 @@ brand/       Logo, icons and token metadata (served at trace-token.vercel.app)
 
 ## Run it locally
 
-Requirements: Node 24, a Postgres database (a free Supabase project works), Chrome with Phantom.
+Requirements: Node 24, a Postgres database (a free Supabase project works), [Fingerprint](https://fingerprint.com) API keys in `server/.secrets/antisybil.json` (`{ "fingerprint": { "publicApiKey", "secretApiKey", "region" } }`), Chrome with Phantom.
 
 ```bash
 # 1. Server
@@ -128,6 +140,7 @@ Environment variables on Vercel:
 | `SERVER_WALLET` | JSON array of the server wallet's secret key (`server/.secrets/server-wallet.json`) |
 | `MINT_ADDRESS`, `MINT_DECIMALS` | from `server/.secrets/token.json` |
 | `CRON_SECRET` | random string; Vercel Cron sends it to `/api/cron/daily` |
+| `FINGERPRINT_PUBLIC_KEY`, `FINGERPRINT_SECRET_KEY`, `FINGERPRINT_REGION` | Fingerprint API keys (locally: `server/.secrets/antisybil.json`) |
 | `SOLANA_RPC_URL` | optional, defaults to the public Devnet RPC |
 
 `server/.secrets/` is git-ignored and never deployed: without it you lose access to the reward pool.

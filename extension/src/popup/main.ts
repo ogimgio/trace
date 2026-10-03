@@ -61,6 +61,12 @@ function rewardsCard(rewards: RewardsInfo | null, rewardsError: string): string 
   return `
     <section class="card">
       <h2>Rewards</h2>
+      ${rewards.deviceChecked ? '' : `
+        <div class="notice">
+          <p><strong>Verify your device to keep earning.</strong> TRACE now checks each browser once to keep bots out.
+          Sign again with the same wallet, it takes a few seconds.</p>
+          <button id="verify-device" class="primary">Verify with Phantom</button>
+        </div>`}
       <p class="balance"><strong>${rewards.totalReceived}</strong> ${symbol} received</p>
       <dl>
         <dt>This week</dt><dd><strong>${week.points}</strong> points</dd>
@@ -204,6 +210,7 @@ async function renderActive(state: State): Promise<void> {
     }
   };
   app.querySelector('#link-wallet')?.addEventListener('click', openLinkPage('link'));
+  app.querySelector('#verify-device')?.addEventListener('click', openLinkPage('link'));
   app.querySelector('#unlink-wallet')?.addEventListener('click', openLinkPage('unlink'));
 
   $('#revoke').addEventListener('click', async () => {

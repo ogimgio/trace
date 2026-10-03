@@ -1,5 +1,6 @@
 import express from 'express';
 import { createApp } from './api.ts';
+import { createDeviceCheck, loadFingerprintConfig } from './fingerprint.ts';
 import { connect, databaseUrl } from './db.ts';
 import { TOKEN_INFO_PATH, loadSolanaConfig } from './solana/config.ts';
 import { createRewarder } from './solana/rewards.ts';
@@ -12,11 +13,16 @@ const sql = connect(databaseUrl());
 const solana = loadSolanaConfig();
 if (!solana) console.warn(`Token not configured (${TOKEN_INFO_PATH} or environment variables): payouts stay queued.`);
 
+// Device check (Fingerprint): without the keys, wallets cannot be linked (fail closed).
+const fingerprint = loadFingerprintConfig();
+if (!fingerprint) console.warn('Fingerprint not configured (server/.secrets/antisybil.json or FINGERPRINT_* variables): wallet linking is disabled.');
+
 const app = express();
 app.use(createApp(sql, {
   rewarder: solana ? createRewarder(solana) : undefined,
   decimals: solana?.decimals,
   cronSecret: process.env.CRON_SECRET,
+  deviceCheck: fingerprint ? createDeviceCheck(fingerprint) : undefined,
 }));
 
 export default app;
