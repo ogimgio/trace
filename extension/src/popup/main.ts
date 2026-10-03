@@ -91,6 +91,7 @@ async function render(): Promise<void> {
 function renderConsent(): void {
   app.innerHTML = `
     ${header}
+    <p class="hero-title">Your history is data. <mark>Get paid</mark> for it.</p>
     <p class="lead">Share your browsing history and earn TRACE, a token on Solana, every week.</p>
 
     <section class="card">

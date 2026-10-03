@@ -1,32 +1,33 @@
-:root {
-  --bg: #ffffff;
-  --fg: #16181d;
-  --muted: #6b7180;
-  --card: #f4f5f7;
-  --border: #e2e4e9;
-  --accent: #5ec8f2;
-  --accent-fg: #0e0f14;
-  --link: #1580b5;
-  --ok: #15803d;
-  --busy: #b45309;
-  --error: #b91c1c;
-  color-scheme: light dark;
+/* Same look as the website: bundled fonts (no requests to third parties), ink borders, hard shadows. */
+@font-face {
+  font-family: 'DM Sans';
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/DMSans.woff2') format('woff2');
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15161a;
-    --fg: #ececf1;
-    --muted: #9a9fac;
-    --card: #1f2026;
-    --border: #2e3038;
-    --accent: #5ec8f2;
-    --accent-fg: #0e0f14;
-    --link: #7fd4f5;
-    --ok: #4ade80;
-    --busy: #fbbf24;
-    --error: #f87171;
-  }
+@font-face {
+  font-family: 'Space Grotesk';
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/SpaceGrotesk-700.woff2') format('woff2');
+}
+
+:root {
+  --bg: #e5ecf0;
+  --fg: #0e0f14;
+  --muted: #5d6270;
+  --card: #f8fafb;
+  --border: #0e0f14;
+  --accent: #5ec8f2;
+  --accent-fg: #0e0f14;
+  --soft: #cdeefb;
+  --link: #1580b5;
+  --ok: #15803d;
+  --busy: #ffd66b;
+  --error: #b91c1c;
+  --display: 'Space Grotesk', system-ui, sans-serif;
+  color-scheme: light;
 }
 
 * {
@@ -38,7 +39,8 @@ body {
   width: 360px;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.45 system-ui, -apple-system, sans-serif;
+  font: 14px/1.5 'DM Sans', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 body.tab {
@@ -46,8 +48,31 @@ body.tab {
 }
 
 body.tab main {
-  max-width: 480px;
-  margin: 48px auto;
+  max-width: 520px;
+  margin: 56px auto;
+}
+
+body.tab .lead {
+  font-size: 17px;
+}
+
+/* Big headline, only on the welcome tab (the popup is too small for it). */
+.hero-title {
+  display: none;
+}
+
+body.tab .hero-title {
+  display: block;
+  margin: 18px 0 12px;
+  font: 700 44px/1.02 var(--display);
+  letter-spacing: -0.03em;
+}
+
+mark {
+  background: var(--accent);
+  color: var(--fg);
+  padding: 0 0.12em;
+  border-radius: 8px;
 }
 
 main {
@@ -56,15 +81,15 @@ main {
 
 h1 {
   margin: 0 0 4px;
-  font-size: 18px;
+  font: 700 20px var(--display);
 }
 
 h2 {
-  margin: 12px 0 4px;
-  font-size: 13px;
+  margin: 14px 0 6px;
+  font: 700 11.5px 'DM Sans', sans-serif;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  letter-spacing: 0.1em;
+  color: var(--link);
 }
 
 h2:first-child {
@@ -77,16 +102,17 @@ ul {
 }
 
 .lead {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   color: var(--muted);
 }
 
 .card {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 12px;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 4px 4px 0 var(--border);
+  padding: 14px;
+  margin-bottom: 14px;
 }
 
 dl {
@@ -109,21 +135,33 @@ dd {
 button {
   display: block;
   width: 100%;
-  padding: 9px 12px;
-  margin-top: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 10px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
   background: var(--card);
   color: var(--fg);
-  font: inherit;
+  font: 700 12.5px 'DM Sans', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 3px 0 var(--border);
   cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 var(--border);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--border);
 }
 
 button.primary {
   background: var(--accent);
-  border-color: var(--accent);
   color: var(--accent-fg);
-  font-weight: 600;
 }
 
 button.danger {
@@ -136,12 +174,16 @@ button:disabled {
 }
 
 details {
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 summary {
   cursor: pointer;
   color: var(--muted);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 label {
@@ -154,8 +196,8 @@ input {
   width: 100%;
   margin-top: 4px;
   padding: 7px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
   background: var(--bg);
   color: var(--fg);
   font: inherit;
@@ -163,25 +205,46 @@ input {
 
 hr {
   border: 0;
-  border-top: 1px solid var(--border);
-  margin: 12px 0 4px;
+  border-top: 1.5px solid rgba(14, 15, 20, 0.15);
+  margin: 14px 0 4px;
 }
 
 code {
-  font-size: 12px;
+  font: 500 11.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #e9ecf3;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  padding: 0 4px;
+  overflow-wrap: anywhere;
 }
 
 .status {
-  margin: 0 0 12px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 14px;
+  padding: 3px 11px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  font-weight: 500;
+  font-size: 12.5px;
 }
 
-.status.ok {
-  color: var(--ok);
+.status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
 }
 
-.status.busy {
-  color: var(--busy);
+.status.ok::before {
+  background: var(--accent);
+}
+
+.status.busy::before {
+  background: var(--busy);
 }
 
 .muted {
@@ -210,23 +273,27 @@ code {
 
 .brand h1 {
   margin: 0;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
 }
 
 .balance {
-  margin: 0 0 8px;
-  font-size: 16px;
+  margin: 0 0 10px;
+  font-size: 15px;
 }
 
 .balance strong {
-  font-size: 22px;
+  font: 700 26px var(--display);
+  background: var(--accent);
+  padding: 0 6px;
+  border-radius: 8px;
+  margin-right: 4px;
 }
 
 .payouts {
   list-style: none;
-  margin: 10px 0 0;
-  padding: 8px 0 0;
-  border-top: 1px solid var(--border);
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1.5px dashed rgba(14, 15, 20, 0.3);
 }
 
 .payouts li {
