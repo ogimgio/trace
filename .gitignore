@@ -5,3 +5,4 @@ server/data/
 .secrets/
 .pkg/
 server/public/trace-extension.zip
+server/public/trace-demo.mp4
