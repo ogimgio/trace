@@ -1,4 +1,4 @@
-export type SyncTrigger = 'initial' | 'alarm' | 'retry';
+export type SyncTrigger = 'initial' | 'alarm' | 'retry' | 'startup';
 
 export interface SyncResult {
   at: number;

@@ -1,4 +1,4 @@
-import { uploadVisits } from '../lib/api';
+import { fetchStats, uploadVisits } from '../lib/api';
 import { RETRY_ALARM, RETRY_DELAY_MINUTES, SYNC_ALARM, SYNC_INTERVAL_MINUTES, UPLOAD_BATCH_SIZE } from '../lib/config';
 import { collectVisitsSince } from '../lib/history';
 import { ensureDeviceId, getState, setState, type SyncTrigger } from '../lib/storage';
@@ -32,7 +32,10 @@ async function doSync(trigger: SyncTrigger): Promise<void> {
   let total = 0;
   let inserted = 0;
   try {
-    const visits = await collectVisitsSince(lastSyncAt ?? 0);
+    // Resume from what the server actually has, not only from what we remember: if earlier uploads went
+    // elsewhere (another server, a reinstall) the gap gets filled. The server drops duplicates.
+    const stats = await fetchStats(deviceId);
+    const visits = await collectVisitsSince(Math.min(lastSyncAt ?? 0, stats?.lastVisitAt ?? 0));
     total = visits.length;
     for (let i = 0; i < visits.length; i += UPLOAD_BATCH_SIZE) {
       const result = await uploadVisits(deviceId, visits.slice(i, i + UPLOAD_BATCH_SIZE));
@@ -70,10 +73,14 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     // Welcome page in a tab: the permission dialog does not close it, unlike the popup.
     await chrome.tabs.create({ url: chrome.runtime.getURL('popup.html?onboarding=1') });
   }
+  // After an update, catch up right away instead of waiting for the daily alarm.
+  if (reason === chrome.runtime.OnInstalledReason.UPDATE) void runSync('startup');
 });
 
+// Catch up when the browser starts: the daily alarm may have been missed while Chrome was closed.
 chrome.runtime.onStartup.addListener(() => {
   void scheduleSync();
+  void runSync('startup');
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
