@@ -130,10 +130,18 @@
           const { signature } = await wallet.signMessage(new TextEncoder().encode(challenge.message), 'utf8');
           let deviceEventId;
           if (agent) {
+            let loaded;
             try {
-              deviceEventId = (await (await agent).get()).event_id;
-            } catch {
-              throw new Error('The device check could not run. Turn off ad or tracker blockers for this page, reload and try again.');
+              loaded = await agent;
+            } catch (err) {
+              console.error('Fingerprint agent failed to load', err);
+              throw new Error(`The device check was blocked before it could load (${err?.message ?? err}). An ad or tracker blocker, or your browser's tracking protection, is probably blocking fpjscdn.net: allow this site in it, reload and try again.`);
+            }
+            try {
+              deviceEventId = (await loaded.get()).event_id;
+            } catch (err) {
+              console.error('Fingerprint agent failed to run', err);
+              throw new Error(`The device check could not reach Fingerprint (${err?.message ?? err}). A blocker may be stopping requests to fpjs.io: allow this site, reload and try again.`);
             }
           }
           const res = await fetch(`/api/link/${encodeURIComponent(code)}`, {
