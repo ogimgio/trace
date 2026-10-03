@@ -247,3 +247,7 @@ code {
 .card .small {
   margin: 10px 0 0;
 }
+
+a {
+  color: var(--link);
+}

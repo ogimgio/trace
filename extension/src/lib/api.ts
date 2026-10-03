@@ -34,10 +34,6 @@ export async function fetchStats(deviceId: string): Promise<DeviceStats | null> 
   return res.json() as Promise<DeviceStats>;
 }
 
-export function deleteDeviceData(deviceId: string) {
-  return request<{ deleted: boolean }>(`/api/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
-}
-
 export interface RewardsInfo {
   symbol: string;
   wallet: string | null;

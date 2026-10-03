@@ -1,4 +1,4 @@
-// Settles finished weeks and sends payouts. In production the Vercel cron does this (/api/cron/settle).
+// Settles finished weeks and sends payouts. In production the Vercel cron does this (/api/cron/daily).
 //
 //   npm run rewards:settle                     settles ready weeks and sends payouts
 //   npm run rewards:settle -- --dry-run        shows what would be paid, without writing or sending

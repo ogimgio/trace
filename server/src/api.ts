@@ -160,12 +160,6 @@ export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
     });
   });
 
-  // Deletes the device and (by cascade) all its visits.
-  app.delete('/api/devices/:id', async (req, res) => {
-    const result = await sql`DELETE FROM devices WHERE id = ${req.params.id}`;
-    res.json({ deleted: result.count > 0 });
-  });
-
   app.use(createRewardsRouter(sql, rewards));
 
   return app;

@@ -1,5 +1,5 @@
-import { deleteDeviceData, fetchRewards, fetchStats, startWalletLink, type DeviceStats, type RewardsInfo } from '../lib/api';
-import { SERVER_URL, SYNC_ALARM } from '../lib/config';
+import { fetchRewards, fetchStats, startWalletLink, type DeviceStats, type RewardsInfo } from '../lib/api';
+import { PRIVACY_EMAIL, PRIVACY_URL, SERVER_URL, SYNC_ALARM } from '../lib/config';
 import { sendMessage } from '../lib/messages';
 import { getState, setState, type State } from '../lib/storage';
 import './popup.css';
@@ -25,6 +25,11 @@ const $ = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
 const header = `<header class="brand"><img src="logo.svg" alt="" width="28" height="28" /><h1>TRACE</h1></header>`;
 
 const shortAddress = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+
+const deletionMailto = (deviceId: string) => `mailto:${PRIVACY_EMAIL}?${new URLSearchParams({
+  subject: 'TRACE data request',
+  body: `Device ID: ${deviceId}\n\nI would like to (access / delete) the data I shared with TRACE.`,
+}).toString().replaceAll('+', '%20')}`;
 
 const STATUS_LABEL: Record<RewardsInfo['payouts'][number]['status'], string> = {
   pending: 'queued',
@@ -109,12 +114,18 @@ function renderConsent(state: State): void {
         <li>Then new visits, automatically every ${formatInterval(state.syncIntervalMinutes)}</li>
         <li>Sent to <code>${escape(SERVER_URL)}</code></li>
       </ul>
+      <h2>How it's used</h2>
+      <ul>
+        <li>To calculate and pay your TRACE rewards</li>
+        <li>To build anonymized, aggregated insights that may be shared with or sold to third parties; they never identify you</li>
+        <li>Kept for up to 18 months; email <code>${escape(PRIVACY_EMAIL)}</code> to access or delete it</li>
+      </ul>
       <h2>What never leaves your browser</h2>
       <ul>
         <li>Files on your computer, Chrome's internal pages and extensions</li>
         <li>localhost and private-network addresses (router, NAS, intranet)</li>
       </ul>
-      <p class="muted">You can withdraw consent and delete your data at any time from this panel.</p>
+      <p class="muted">You can withdraw consent at any time from this panel. Details in our <a href="${PRIVACY_URL}" target="_blank" rel="noopener">privacy policy</a>.</p>
     </section>
 
     <button id="accept" class="primary">I agree, grant access</button>
@@ -186,7 +197,10 @@ async function renderActive(state: State): Promise<void> {
       <p class="muted small">Device ID: <code>${escape(state.deviceId)}</code></p>
       <hr />
       <button id="revoke">Withdraw consent</button>
-      <button id="delete" class="danger">Withdraw consent and delete my data from the server</button>
+      <p class="muted small">
+        To access or delete data you've already shared, <a href="${deletionMailto(state.deviceId)}" target="_blank" rel="noopener">email ${PRIVACY_EMAIL}</a>
+        with your device ID. See the <a href="${PRIVACY_URL}" target="_blank" rel="noopener">privacy policy</a>.
+      </p>
     </details>
     <p id="msg" class="msg"></p>
   `;
@@ -222,17 +236,6 @@ async function renderActive(state: State): Promise<void> {
     await render();
   });
 
-  $('#delete').addEventListener('click', async () => {
-    if (!confirm('Withdraw consent and permanently delete your data from the server?')) return;
-    try {
-      await deleteDeviceData(state.deviceId);
-    } catch (err) {
-      $('#msg').textContent = `Deletion failed: ${err}`;
-      return;
-    }
-    await chrome.permissions.remove({ permissions: ['history'] });
-    await render();
-  });
 }
 
 chrome.storage.onChanged.addListener((_changes, area) => {

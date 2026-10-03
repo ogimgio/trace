@@ -5,6 +5,7 @@ import {
   MAX_PAGES, MAX_TOKENS_PER_POINT, MIN_VISITS_PER_ACTIVE_DAY, POINTS_PER_ACTIVE_DAY, WELCOME_BONUS,
   SETTLEMENT_GRACE_MS, WELCOME_MIN_ACTIVE_DAYS, epochAt, epochBudget, epochRange,
 } from './policy.ts';
+import { purgeExpiredVisits } from '../retention.ts';
 import { scoreVisits, type ScoredVisit } from './points.ts';
 import { grantWelcome, readyEpochs, sendPayouts, settleEpoch, type PayoutRow } from './settle.ts';
 import {
@@ -18,7 +19,7 @@ export interface RewardsOptions {
   decimals?: number;
   symbol?: string;
   now?: () => number;
-  // Protects /api/cron/settle: Vercel Cron sends "Authorization: Bearer <CRON_SECRET>".
+  // Protects /api/cron/daily: Vercel Cron sends "Authorization: Bearer <CRON_SECRET>".
   cronSecret?: string;
 }
 
@@ -179,8 +180,8 @@ export function createRewardsRouter(
     });
   });
 
-  // Called daily by Vercel Cron: settles ready weeks and sends queued payouts.
-  router.get('/api/cron/settle', async (req, res) => {
+  // Called daily by Vercel Cron: settles ready weeks, sends queued payouts and purges visits past retention.
+  router.get('/api/cron/daily', async (req, res) => {
     if (!cronSecret || req.headers.authorization !== `Bearer ${cronSecret}`) {
       res.status(401).json({ error: 'unauthorized' });
       return;
@@ -191,7 +192,8 @@ export function createRewardsRouter(
       settled.push({ epoch, payouts: plan.payouts.length, totalPoints: plan.totalPoints });
     }
     const sent = rewarder ? await sendPayouts(sql, rewarder) : [];
-    res.json({ settled, sent: sent.map((p) => ({ id: p.id, kind: p.kind, status: p.status })) });
+    const purgedVisits = await purgeExpiredVisits(sql, now());
+    res.json({ settled, sent: sent.map((p) => ({ id: p.id, kind: p.kind, status: p.status })), purgedVisits });
   });
 
   return router;

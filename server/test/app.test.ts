@@ -79,13 +79,13 @@ test('truncates very long urls instead of rejecting them', async () => {
   assert.deepEqual(await res.json(), { received: 1, inserted: 1, skipped: 0 });
 });
 
-test('deleting a device removes its visits', async () => {
+test('there is no public delete endpoint (deletion is by request, see src/delete-device.ts)', async () => {
   await upload('dev-d', [visit(1), visit(2)]);
   const del = await fetch(`${base}/api/devices/dev-d`, { method: 'DELETE' });
-  assert.deepEqual(await del.json(), { deleted: true });
+  assert.equal(del.status, 404);
 
-  const stats = await fetch(`${base}/api/devices/dev-d/stats`);
-  assert.equal(stats.status, 404);
+  const stats = await (await fetch(`${base}/api/devices/dev-d/stats`)).json();
+  assert.equal(stats.totalVisits, 2);
 });
 
 test('stores large uploads in chunks and strips NUL characters', async () => {

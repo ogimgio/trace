@@ -49,6 +49,13 @@ Every week (Monday 00:00 UTC) a fixed budget is split among users in proportion 
 - **Cap** of 1 TRACE per point: with few users nobody gets millions; unused budget stays in the pool.
 - **Welcome bonus** of 500 TRACE, once per device and once per wallet, sent instantly when the wallet is linked. Past history is not paid per visit, since it is the easiest to fake.
 - **Settlement** happens after the week ends plus an 8-day grace period (the extension syncs every 7 days). A settled week is final. A daily Vercel Cron job settles and pays automatically.
+
+## Data and privacy
+
+- Users can withdraw consent from the extension at any time; syncing stops immediately.
+- Access and deletion requests are handled by email (`privacy@trace-rewards.vercel.app`) within 30 days; an operator runs `npm run admin:delete-device`. There is no public delete endpoint, so knowing a device ID is not enough to erase someone's data.
+- Shared history is kept for up to 18 months and then purged by the daily job. Only anonymized, aggregated insights are shared with third parties.
+- Full policy: [trace-rewards.vercel.app/privacy.html](https://trace-rewards.vercel.app/privacy.html)
 - **No double payments:** every payout is claimed with a conditional `UPDATE`, unique indexes guard the welcome bonus, and a payout whose confirmation timed out is held for manual review instead of being retried.
 
 The rules live in [`server/src/rewards/policy.ts`](server/src/rewards/policy.ts).
@@ -58,7 +65,7 @@ The rules live in [`server/src/rewards/policy.ts`](server/src/rewards/policy.ts)
 ```
 extension/   Chrome extension (Manifest V3, TypeScript, Vite)
 server/      API (Node 24, Express) on Vercel + Postgres on Supabase + Solana payouts
-  src/api.ts            visits upload, stats, delete
+  src/api.ts            visits upload, stats
   src/rewards/          points, weekly settlement, signed wallet linking, cron
   src/solana/           token setup, payouts
   public/               landing page, signing page (link.html), extension zip
@@ -97,12 +104,13 @@ Then open `chrome://extensions`, enable **Developer mode**, click **Load unpacke
 
 ```bash
 cd server
-npm test                                    # 26 tests on an in-memory Postgres (PGlite), no setup needed
+npm test                                    # tests on an in-memory Postgres (PGlite), no setup needed
 npm run rewards:settle -- --dry-run         # what would be paid
 npm run rewards:settle                      # settle finished weeks and send payouts
 npm run rewards:settle -- --ignore-grace    # demo: also settle weeks that ended less than 8 days ago
 npm run solana:reward -- <wallet> 10        # manual transfer from the pool
 npm run solana:setup -- --uri <url>         # update the metadata URI
+npm run admin:delete-device -- <deviceId>   # handle an emailed deletion request (add --yes to delete)
 ```
 
 ### Deploy
@@ -119,7 +127,7 @@ Environment variables on Vercel:
 | `DATABASE_URL` | Supabase pooler URL (transaction mode, port 6543) |
 | `SERVER_WALLET` | JSON array of the server wallet's secret key (`server/.secrets/server-wallet.json`) |
 | `MINT_ADDRESS`, `MINT_DECIMALS` | from `server/.secrets/token.json` |
-| `CRON_SECRET` | random string; Vercel Cron sends it to `/api/cron/settle` |
+| `CRON_SECRET` | random string; Vercel Cron sends it to `/api/cron/daily` |
 | `SOLANA_RPC_URL` | optional, defaults to the public Devnet RPC |
 
 `server/.secrets/` is git-ignored and never deployed: without it you lose access to the reward pool.
@@ -130,12 +138,12 @@ Environment variables on Vercel:
 | --- | --- | --- |
 | `POST` | `/api/visits` | `{ deviceId, visits[] }`, max 5000 per request; returns `{ received, inserted, skipped }` |
 | `GET` | `/api/devices/:id/stats` | Total visits, first and last visit, last sync |
-| `DELETE` | `/api/devices/:id` | Deletes the device and all its visits |
 | `GET` | `/api/devices/:id/rewards` | Current week's points, payout history with Explorer links, rules |
 | `POST` | `/api/devices/:id/link-challenge` | `{ action: 'link' \| 'unlink' }`: one-time code (10 min) and signing page URL |
 | `GET` | `/api/link/:code` | Message to sign and code status (`valid`, `used`, `expired`) |
 | `POST` | `/api/link/:code` | `{ wallet, signature }` (base64 Ed25519): verifies and links or unlinks; on first link returns the welcome payout |
-| `GET` | `/api/cron/settle` | Settles finished weeks and sends pending payouts (requires `Authorization: Bearer $CRON_SECRET`) |
+| `GET` | `/api/stats` | Public aggregate numbers for the landing page (devices, visits, payouts, TRACE paid) |
+| `GET` | `/api/cron/daily` | Settles finished weeks, sends pending payouts and purges visits older than 18 months (requires `Authorization: Bearer $CRON_SECRET`) |
 
 ## Known limitations and next steps
 

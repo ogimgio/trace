@@ -2,6 +2,10 @@
 // Locally: VITE_SERVER_URL=http://localhost:8787 npm run build
 export const SERVER_URL: string = import.meta.env.VITE_SERVER_URL ?? 'https://trace-rewards.vercel.app';
 
+// Data access and deletion requests are handled by email (see the privacy policy).
+export const PRIVACY_EMAIL = 'privacy@trace-rewards.vercel.app';
+export const PRIVACY_URL = `${SERVER_URL}/privacy.html`;
+
 export const DEFAULT_SYNC_INTERVAL_MINUTES = 7 * 24 * 60;
 export const RETRY_DELAY_MINUTES = 60;
 

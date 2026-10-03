@@ -5,6 +5,7 @@ import type { Sql } from '../src/db.ts';
 import { pageKey, scoreVisits } from '../src/rewards/points.ts';
 import { epochBudget, epochRange, toUnits } from '../src/rewards/policy.ts';
 import { distribute, grantWelcome, planEpoch, readyEpochs, sendPayouts, settleEpoch } from '../src/rewards/settle.ts';
+import { purgeExpiredVisits, RETENTION_MS } from '../src/retention.ts';
 import { startTestDb } from './db.ts';
 
 const DAY = 86_400_000;
@@ -160,4 +161,17 @@ test('concurrent sendPayouts never pay the same row twice', async () => {
   const [a, b] = await Promise.all([sendPayouts(db, slow), sendPayouts(db, slow)]);
   assert.equal(a.length + b.length, 4);
   assert.equal(sends, 4);
+});
+
+test('visits are purged after the retention period, payouts are kept', async () => {
+  const { afterEpoch0 } = await seed();
+  await settleEpoch(db, 0, D, afterEpoch0);
+  const now = RETENTION_MS + 10;
+  await db`UPDATE visits SET received_at = 5 WHERE device_id = 'dev-a'`;
+  await db`UPDATE visits SET received_at = 20 WHERE device_id <> 'dev-a'`;
+  assert.equal(await purgeExpiredVisits(db, now), 140);
+  const [left] = await db`SELECT COUNT(*) AS n FROM visits WHERE device_id = 'dev-a'`;
+  assert.equal(left.n, 0);
+  const [payouts] = await db`SELECT COUNT(*) AS n FROM reward_payouts`;
+  assert.equal(payouts.n, 4);
 });

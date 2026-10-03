@@ -10,7 +10,8 @@
     "solana:setup": "node src/solana/setup.ts",
     "solana:reward": "node src/solana/send-reward.ts",
     "rewards:settle": "node src/rewards/cli.ts",
-    "db:migrate": "node src/migrate.ts"
+    "db:migrate": "node src/migrate.ts",
+    "admin:delete-device": "node src/delete-device.ts"
   },
   "license": "ISC",
   "type": "module",

@@ -175,8 +175,8 @@ test('challenge errors and the signing page', async () => {
   assert.equal((await fetch(`${base}/logo.svg`)).status, 200);
 
   // The cron endpoint requires the secret
-  assert.equal((await fetch(`${base}/api/cron/settle`)).status, 401);
-  const cron = await fetch(`${base}/api/cron/settle`, { headers: { authorization: 'Bearer cron-test' } });
+  assert.equal((await fetch(`${base}/api/cron/daily`)).status, 401);
+  const cron = await fetch(`${base}/api/cron/daily`, { headers: { authorization: 'Bearer cron-test' } });
   assert.equal(cron.status, 200);
 
   // The old unsigned API is gone
