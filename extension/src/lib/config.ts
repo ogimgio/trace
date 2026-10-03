@@ -6,7 +6,8 @@ export const SERVER_URL: string = import.meta.env.VITE_SERVER_URL ?? 'https://tr
 export const PRIVACY_EMAIL = 'privacy@trace-rewards.vercel.app';
 export const PRIVACY_URL = `${SERVER_URL}/privacy.html`;
 
-export const DEFAULT_SYNC_INTERVAL_MINUTES = 7 * 24 * 60;
+// New visits are uploaded automatically in the background once a day.
+export const SYNC_INTERVAL_MINUTES = 24 * 60;
 export const RETRY_DELAY_MINUTES = 60;
 
 export const SYNC_ALARM = 'history-sync';

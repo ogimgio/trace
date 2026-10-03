@@ -1,6 +1,4 @@
-import { DEFAULT_SYNC_INTERVAL_MINUTES } from './config';
-
-export type SyncTrigger = 'initial' | 'manual' | 'alarm' | 'retry';
+export type SyncTrigger = 'initial' | 'alarm' | 'retry';
 
 export interface SyncResult {
   at: number;
@@ -18,7 +16,6 @@ export interface State {
   // Start of the last successful sync: the next one sends visits from here on.
   lastSyncAt: number | null;
   lastSyncResult: SyncResult | null;
-  syncIntervalMinutes: number;
   syncing: boolean;
 }
 
@@ -27,7 +24,6 @@ const DEFAULTS: State = {
   consentAt: null,
   lastSyncAt: null,
   lastSyncResult: null,
-  syncIntervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
   syncing: false,
 };
 

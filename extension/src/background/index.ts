@@ -1,7 +1,6 @@
 import { uploadVisits } from '../lib/api';
-import { RETRY_ALARM, RETRY_DELAY_MINUTES, SYNC_ALARM, UPLOAD_BATCH_SIZE } from '../lib/config';
+import { RETRY_ALARM, RETRY_DELAY_MINUTES, SYNC_ALARM, SYNC_INTERVAL_MINUTES, UPLOAD_BATCH_SIZE } from '../lib/config';
 import { collectVisitsSince } from '../lib/history';
-import type { Message } from '../lib/messages';
 import { ensureDeviceId, getState, setState, type SyncTrigger } from '../lib/storage';
 
 // A freshly started service worker has no sync in progress: reset a flag left
@@ -56,12 +55,11 @@ async function doSync(trigger: SyncTrigger): Promise<void> {
 }
 
 async function scheduleSync(): Promise<void> {
-  const { syncIntervalMinutes } = await getState();
   const existing = await chrome.alarms.get(SYNC_ALARM);
-  if (existing?.periodInMinutes === syncIntervalMinutes) return;
+  if (existing?.periodInMinutes === SYNC_INTERVAL_MINUTES) return;
   await chrome.alarms.create(SYNC_ALARM, {
-    delayInMinutes: syncIntervalMinutes,
-    periodInMinutes: syncIntervalMinutes,
+    delayInMinutes: SYNC_INTERVAL_MINUTES,
+    periodInMinutes: SYNC_INTERVAL_MINUTES,
   });
 }
 
@@ -96,16 +94,4 @@ chrome.permissions.onRemoved.addListener(async ({ permissions }) => {
   if (!permissions?.includes('history')) return;
   await setState({ consentAt: null, lastSyncAt: null });
   await chrome.alarms.clear(RETRY_ALARM);
-});
-
-chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
-  switch (message.type) {
-    case 'sync-now':
-      void runSync('manual');
-      sendResponse({ ok: true });
-      return;
-    case 'reschedule':
-      scheduleSync().then(() => sendResponse({ ok: true }));
-      return true;
-  }
 });

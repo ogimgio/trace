@@ -1,6 +1,5 @@
 import { fetchRewards, fetchStats, startWalletLink, type DeviceStats, type RewardsInfo } from '../lib/api';
 import { PRIVACY_EMAIL, PRIVACY_URL, SERVER_URL, SYNC_ALARM } from '../lib/config';
-import { sendMessage } from '../lib/messages';
 import { getState, setState, type State } from '../lib/storage';
 import './popup.css';
 
@@ -12,13 +11,6 @@ const escape = (s: string) =>
 
 const formatDate = (ms: number | null | undefined) =>
   ms ? new Date(ms).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
-
-function formatInterval(minutes: number): string {
-  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
-  if (minutes % (24 * 60) === 0) return plural(minutes / (24 * 60), 'day');
-  if (minutes % 60 === 0) return plural(minutes / 60, 'hour');
-  return plural(minutes, 'minute');
-}
 
 const $ = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
 
@@ -92,11 +84,11 @@ const formatDay = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day
 async function render(): Promise<void> {
   const state = await getState();
   const granted = await chrome.permissions.contains({ permissions: ['history'] });
-  if (state.consentAt === null || !granted) renderConsent(state);
+  if (state.consentAt === null || !granted) renderConsent();
   else await renderActive(state);
 }
 
-function renderConsent(state: State): void {
+function renderConsent(): void {
   app.innerHTML = `
     ${header}
     <p class="lead">Share your browsing history and earn TRACE, a token on Solana, every week.</p>
@@ -111,7 +103,7 @@ function renderConsent(state: State): void {
       <h2>When and where</h2>
       <ul>
         <li>Right away, all available history (Chrome keeps about 90 days)</li>
-        <li>Then new visits, automatically every ${formatInterval(state.syncIntervalMinutes)}</li>
+        <li>Then new visits, automatically in the background once a day</li>
         <li>Sent to <code>${escape(SERVER_URL)}</code></li>
       </ul>
       <h2>How it's used</h2>
@@ -183,17 +175,10 @@ async function renderActive(state: State): Promise<void> {
 
     ${rewardsCard(rewards, rewardsError)}
 
-    <button id="sync" class="primary" ${state.syncing ? 'disabled' : ''}>Sync now</button>
-
     <details>
       <summary>Settings</summary>
-      <label>
-        Sync interval (minutes)
-        <input id="interval" type="number" min="1" value="${state.syncIntervalMinutes}" />
-      </label>
-      <button id="save-interval">Save interval</button>
-      ${rewards?.wallet ? `<hr /><button id="unlink-wallet">Change wallet</button>
-      <p class="muted small">For security, unlinking requires a signature from the current wallet.</p>` : ''}
+      ${rewards?.wallet ? `<button id="unlink-wallet">Change wallet</button>
+      <p class="muted small">For security, unlinking requires a signature from the current wallet.</p><hr />` : ''}
       <p class="muted small">Device ID: <code>${escape(state.deviceId)}</code></p>
       <hr />
       <button id="revoke">Withdraw consent</button>
@@ -204,8 +189,6 @@ async function renderActive(state: State): Promise<void> {
     </details>
     <p id="msg" class="msg"></p>
   `;
-
-  $('#sync').addEventListener('click', () => sendMessage({ type: 'sync-now' }));
 
   // Linking happens in a tab served by the server, where Phantom signs (Phantom isn't available in the popup).
   const openLinkPage = (action: 'link' | 'unlink') => async (event: Event) => {
@@ -221,13 +204,6 @@ async function renderActive(state: State): Promise<void> {
   };
   app.querySelector('#link-wallet')?.addEventListener('click', openLinkPage('link'));
   app.querySelector('#unlink-wallet')?.addEventListener('click', openLinkPage('unlink'));
-
-  $('#save-interval').addEventListener('click', async () => {
-    const minutes = Math.floor(Number($<HTMLInputElement>('#interval').value));
-    if (!(minutes >= 1)) return;
-    await setState({ syncIntervalMinutes: minutes });
-    await sendMessage({ type: 'reschedule' });
-  });
 
   $('#revoke').addEventListener('click', async () => {
     if (!confirm('Stop sharing your browsing history?')) return;

@@ -30,7 +30,7 @@ export const MAX_TOKENS_PER_POINT = 1n;
 export const WELCOME_BONUS = 500n;
 export const WELCOME_MIN_ACTIVE_DAYS = 7;
 
-// The extension syncs every 7 days, so a week's data can arrive up to 7 days later.
+// The extension syncs daily, but a device that was offline can upload a week's data days later.
 // A week is settled only after this grace period.
 export const SETTLEMENT_GRACE_MS = 8 * DAY_MS;
 

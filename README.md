@@ -12,7 +12,7 @@ Your browsing history is already collected and monetized by trackers, for free. 
 
 1. **Consent.** On install a welcome tab explains exactly what is shared. Chrome's `history` permission is optional and only requested when the user clicks *Accept*.
 2. **Local filtering.** Local files, browser-internal pages, `localhost` and private-network addresses never leave the browser.
-3. **Sync.** The first sync uploads the available history (Chrome keeps ~90 days); then new visits every 7 days. Uploads are idempotent (`device_id`, `visit_id`).
+3. **Sync.** The first sync uploads the available history (Chrome keeps ~90 days); then new visits automatically in the background once a day. Uploads are idempotent (`device_id`, `visit_id`).
 4. **Link a wallet by signature.** The user signs a one-time message with Phantom (free, no transaction). The server verifies the Ed25519 signature and links the wallet. A linked wallet can only be changed by signing with it.
 5. **Get paid.** A 500 TRACE welcome bonus is sent within seconds of linking (if the history has at least 7 active days). After that, rewards are paid weekly.
 
@@ -48,7 +48,7 @@ Every week (Monday 00:00 UTC) a fixed budget is split among users in proportion 
 - **Budget** starts at 5,000,000 TRACE and shrinks 1% per week. The sum of all weekly budgets is exactly the 500M pool, so it never runs out.
 - **Cap** of 1 TRACE per point: with few users nobody gets millions; unused budget stays in the pool.
 - **Welcome bonus** of 500 TRACE, once per device and once per wallet, sent instantly when the wallet is linked. Past history is not paid per visit, since it is the easiest to fake.
-- **Settlement** happens after the week ends plus an 8-day grace period (the extension syncs every 7 days). A settled week is final. A daily Vercel Cron job settles and pays automatically.
+- **Settlement** happens after the week ends plus an 8-day grace period, so devices that were offline for a few days can still upload that week's visits. A settled week is final. A daily Vercel Cron job settles and pays automatically.
 
 ## Data and privacy
 
