@@ -1,25 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="44 72 420 420" width="512" height="512">
   <title>TRACE</title>
-  <defs>
-    <radialGradient id="bg" cx="0.3" cy="0.25" r="0.9">
-      <stop offset="0" stop-color="#1B2140"/>
-      <stop offset="1" stop-color="#090B16"/>
-    </radialGradient>
-    <linearGradient id="trace" gradientUnits="userSpaceOnUse" x1="96" y1="150" x2="330" y2="400">
-      <stop offset="0" stop-color="#9945FF"/>
-      <stop offset="1" stop-color="#14F195"/>
-    </linearGradient>
-    <filter id="glow" x="-1" y="-1" width="3" height="3">
-      <feGaussianBlur stdDeviation="14"/>
-    </filter>
-  </defs>
-  <circle cx="256" cy="256" r="256" fill="url(#bg)"/>
-  <!-- Pagine visitate: una scia di punti che entra nella T -->
-  <circle cx="98" cy="164" r="10" fill="url(#trace)" opacity="0.35"/>
-  <circle cx="140" cy="164" r="14" fill="url(#trace)" opacity="0.65"/>
-  <!-- La T, che scende fino alla posizione attuale -->
-  <path d="M186 164 H402 M294 164 V346" fill="none" stroke="url(#trace)" stroke-width="44" stroke-linecap="round"/>
-  <circle cx="294" cy="372" r="26" fill="#14F195" filter="url(#glow)" opacity="0.8"/>
-  <circle cx="294" cy="372" r="20" fill="#14F195"/>
-  <circle cx="294" cy="372" r="8" fill="#090B16"/>
+  <g fill="#5EC8F2">
+    <circle cx="84" cy="168" r="20"/>
+    <circle cx="148" cy="168" r="26"/>
+    <path d="M222 136h196a32 32 0 0 1 0 64h-66v178a32 32 0 0 1-64 0V200h-66a32 32 0 0 1 0-64z"/>
+  </g>
 </svg>

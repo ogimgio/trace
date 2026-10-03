@@ -4,8 +4,9 @@
   --muted: #6b7180;
   --card: #f4f5f7;
   --border: #e2e4e9;
-  --accent: #9945ff;
-  --accent-fg: #ffffff;
+  --accent: #5ec8f2;
+  --accent-fg: #0e0f14;
+  --link: #1580b5;
   --ok: #15803d;
   --busy: #b45309;
   --error: #b91c1c;
@@ -19,8 +20,9 @@
     --muted: #9a9fac;
     --card: #1f2026;
     --border: #2e3038;
-    --accent: #a78bfa;
-    --accent-fg: #15161a;
+    --accent: #5ec8f2;
+    --accent-fg: #0e0f14;
+    --link: #7fd4f5;
     --ok: #4ade80;
     --busy: #fbbf24;
     --error: #f87171;
@@ -235,7 +237,7 @@ code {
 }
 
 .payouts a {
-  color: var(--accent);
+  color: var(--link);
 }
 
 .card p {

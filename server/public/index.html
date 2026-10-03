@@ -14,14 +14,14 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --sage: #e4e8dc;
-      --paper: #f7f8f3;
+      --sage: #e5ecf0;
+      --paper: #f8fafb;
       --ink: #0e0f14;
       --ink-soft: #3b3f4a;
       --muted: #5d6270;
-      --green: #14f195;
-      --green-deep: #0b9e60;
-      --purple: #9945ff;
+      --sky: #5ec8f2;
+      --sky-deep: #1580b5;
+      --soft: #cdeefb;
       --line: 2.5px solid var(--ink);
       --shadow: 5px 5px 0 var(--ink);
       --radius: 18px;
@@ -51,8 +51,8 @@
       background: var(--paper); color: var(--ink); box-shadow: 0 4px 0 var(--ink); transition: transform .12s, box-shadow .12s; }
     .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--ink); }
     .btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
-    .btn.green { background: var(--green); }
-    .btn.dark { background: var(--ink); color: var(--paper); box-shadow: 0 4px 0 var(--green-deep); }
+    .btn.sky { background: var(--sky); }
+    .btn.dark { background: var(--ink); color: var(--paper); box-shadow: 0 4px 0 var(--sky-deep); }
     .nav .btn { padding: 10px 18px; font-size: 13px; }
 
     /* Hero */
@@ -60,10 +60,10 @@
     .hero-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; }
     .pill { display: inline-flex; align-items: center; gap: 10px; padding: 7px 14px; border: var(--line); border-radius: 999px;
       background: var(--paper); font-weight: 500; font-size: 14px; }
-    .pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--green); border: 2px solid var(--ink); animation: pulse 1.8s infinite; }
-    @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(20, 241, 149, .35); } }
+    .pulse { width: 10px; height: 10px; border-radius: 50%; background: var(--sky); border: 2px solid var(--ink); animation: pulse 1.8s infinite; }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(94, 200, 242, .4); } }
     h1 { font: 700 clamp(44px, 6.4vw, 84px)/1.0 var(--display); letter-spacing: -0.03em; margin: 22px 0 22px; }
-    mark { background: var(--green); color: var(--ink); padding: 0 .14em; border-radius: 10px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+    mark { background: var(--sky); color: var(--ink); padding: 0 .14em; border-radius: 10px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
     .lead { font-size: 20px; color: var(--ink-soft); max-width: 520px; margin: 0 0 30px; }
     .cta { display: flex; gap: 14px; flex-wrap: wrap; }
     .hero-art { position: relative; }
@@ -76,12 +76,12 @@
     .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
     .stat { padding: 30px 20px; border-left: 1px solid #2a2d38; }
     .stat:first-child { border-left: 0; }
-    .stat strong { display: block; font: 700 clamp(28px, 3.4vw, 42px)/1.1 var(--display); color: var(--green); }
+    .stat strong { display: block; font: 700 clamp(28px, 3.4vw, 42px)/1.1 var(--display); color: var(--sky); }
     .stat span { color: #b8bcc8; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; }
 
     /* Sections */
     section { padding: 96px 0; }
-    .eyebrow { font: 700 14px var(--body); text-transform: uppercase; letter-spacing: 0.12em; color: var(--green-deep); margin: 0 0 12px; }
+    .eyebrow { font: 700 14px var(--body); text-transform: uppercase; letter-spacing: 0.12em; color: var(--sky-deep); margin: 0 0 12px; }
     h2 { font: 700 clamp(34px, 4.4vw, 56px)/1.05 var(--display); letter-spacing: -0.02em; margin: 0 0 18px; max-width: 760px; }
     .section-lead { font-size: 19px; color: var(--ink-soft); max-width: 640px; margin: 0 0 48px; }
     .card { background: var(--paper); border: var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px; }
@@ -89,8 +89,8 @@
 
     .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
     .step-num { width: 52px; height: 52px; border: var(--line); border-radius: 50%; display: grid; place-items: center;
-      font: 700 22px var(--display); background: var(--green); margin-bottom: 18px; }
-    .step:nth-child(2) .step-num { background: #cbb3ff; }
+      font: 700 22px var(--display); background: var(--sky); margin-bottom: 18px; }
+    .step:nth-child(2) .step-num { background: var(--soft); }
     .step:nth-child(3) .step-num { background: #ffd66b; }
     .step h3, .feature h3 { font: 700 23px/1.2 var(--display); margin: 0 0 8px; }
     .step p, .feature p { margin: 0; color: var(--ink-soft); }
@@ -106,7 +106,7 @@
     .calc label { display: block; margin-top: 22px; font-weight: 700; }
     .calc label span { float: right; font-family: var(--display); }
     input[type=range] { width: 100%; margin-top: 10px; accent-color: var(--ink); height: 28px; }
-    .calc-out { margin-top: 26px; padding: 20px; border: var(--line); border-radius: 14px; background: var(--green); display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
+    .calc-out { margin-top: 26px; padding: 20px; border: var(--line); border-radius: 14px; background: var(--sky); display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
     .calc-out strong { font: 700 44px/1 var(--display); }
     .calc-out small { display: block; font-size: 14px; font-weight: 500; }
     .note { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
@@ -120,22 +120,22 @@
 
     /* Privacy */
     .features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
-    .feature-badge { display: inline-block; font: 700 12px var(--body); text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 10px; border: 2px solid var(--ink); border-radius: 999px; background: var(--green); margin-bottom: 14px; }
+    .feature-badge { display: inline-block; font: 700 12px var(--body); text-transform: uppercase; letter-spacing: 0.1em; padding: 4px 10px; border: 2px solid var(--ink); border-radius: 999px; background: var(--sky); margin-bottom: 14px; }
 
     /* On-chain */
     .chain { background: var(--ink); color: var(--paper); }
-    .chain .eyebrow { color: var(--green); }
+    .chain .eyebrow { color: var(--sky); }
     .chain .section-lead { color: #b8bcc8; }
     .chain-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-    .chain .card { background: #161822; color: var(--paper); border-color: #3a3f52; box-shadow: 5px 5px 0 var(--green); }
+    .chain .card { background: #161822; color: var(--paper); border-color: #3a3f52; box-shadow: 5px 5px 0 var(--sky); }
     .supply-bar { display: flex; height: 54px; border: 2.5px solid var(--paper); border-radius: 12px; overflow: hidden; margin: 18px 0 14px; }
     .supply-bar div { display: grid; place-items: center; font: 700 15px var(--display); color: var(--ink); }
-    .supply-bar .pool { background: var(--green); flex: 1; }
-    .supply-bar .reserve { background: #cbb3ff; flex: 1; border-left: 2.5px solid var(--paper); }
+    .supply-bar .pool { background: var(--sky); flex: 1; }
+    .supply-bar .reserve { background: var(--soft); flex: 1; border-left: 2.5px solid var(--paper); }
     .legend { display: grid; gap: 6px; color: #b8bcc8; font-size: 15px; }
     .addr { display: grid; gap: 14px; }
     .addr div span { display: block; color: #8b90a0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
-    .addr a { color: var(--green); text-decoration: none; font: 500 14px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+    .addr a { color: var(--sky); text-decoration: none; font: 500 14px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
     .addr a:hover { text-decoration: underline; }
 
     /* FAQ */
@@ -145,12 +145,12 @@
     summary::-webkit-details-marker { display: none; }
     summary::after { content: '+'; position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px;
       border: 2px solid var(--ink); border-radius: 50%; display: grid; place-items: center; font: 700 18px/1 var(--body); }
-    details[open] summary::after { content: '−'; background: var(--green); }
+    details[open] summary::after { content: '−'; background: var(--sky); }
     details p { margin: 0; padding: 0 22px 20px; color: var(--ink-soft); }
 
     /* Final CTA + footer */
     .final { text-align: center; }
-    .final .card { padding: 56px 28px; background: var(--green); }
+    .final .card { padding: 56px 28px; background: var(--sky); }
     .final h2 { margin: 0 auto 14px; }
     .final p { margin: 0 auto 28px; max-width: 560px; font-size: 19px; }
     footer { border-top: var(--line); background: var(--paper); padding: 36px 0; }
@@ -204,52 +204,52 @@
         <h1>Your history is data. <mark>Get paid</mark> for it.</h1>
         <p class="lead">TRACE is a Chrome extension that rewards you in TRACE tokens on Solana for the browsing history you choose to share. Your consent, your rules, your rewards.</p>
         <div class="cta">
-          <a class="btn green" href="/trace-extension.zip" download>Download extension</a>
+          <a class="btn sky" href="/trace-extension.zip" download>Download extension</a>
           <a class="btn" href="#how">How it works</a>
         </div>
       </div>
 
       <div class="hero-art" aria-hidden="true">
         <svg viewBox="0 0 560 500" fill="none" stroke="#0e0f14" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="300" cy="250" r="220" fill="#d3dccb" stroke="none"/>
+          <circle cx="300" cy="250" r="220" fill="#d3e3ea" stroke="none"/>
           <!-- browser window -->
           <g class="float">
-            <rect x="40" y="70" width="340" height="250" rx="20" fill="#f7f8f3"/>
+            <rect x="40" y="70" width="340" height="250" rx="20" fill="#f8fafb"/>
             <path d="M40 116 H380" />
-            <path d="M60 70 h300 a20 20 0 0 1 20 20 v26 H40 v-26 a20 20 0 0 1 20 -20 z" fill="#14f195"/>
-            <circle cx="66" cy="93" r="6" fill="#f7f8f3"/>
-            <circle cx="88" cy="93" r="6" fill="#f7f8f3"/>
-            <circle cx="110" cy="93" r="6" fill="#f7f8f3"/>
-            <rect x="136" y="82" width="200" height="22" rx="11" fill="#f7f8f3" stroke-width="3.5"/>
+            <path d="M60 70 h300 a20 20 0 0 1 20 20 v26 H40 v-26 a20 20 0 0 1 20 -20 z" fill="#5ec8f2"/>
+            <circle cx="66" cy="93" r="6" fill="#f8fafb"/>
+            <circle cx="88" cy="93" r="6" fill="#f8fafb"/>
+            <circle cx="110" cy="93" r="6" fill="#f8fafb"/>
+            <rect x="136" y="82" width="200" height="22" rx="11" fill="#f8fafb" stroke-width="3.5"/>
             <!-- visited pages -->
-            <rect x="66" y="140" width="130" height="74" rx="10" fill="#cbb3ff" stroke-width="4"/>
+            <rect x="66" y="140" width="130" height="74" rx="10" fill="#cdeefb" stroke-width="4"/>
             <path d="M82 162 h80 M82 180 h96 M82 196 h56" stroke-width="4"/>
             <rect x="214" y="140" width="140" height="74" rx="10" fill="#ffd66b" stroke-width="4"/>
             <path d="M230 162 h86 M230 180 h104 M230 196 h64" stroke-width="4"/>
-            <rect x="66" y="232" width="288" height="64" rx="10" fill="#e4e8dc" stroke-width="4"/>
+            <rect x="66" y="232" width="288" height="64" rx="10" fill="#e5ecf0" stroke-width="4"/>
             <path d="M82 254 h180 M82 274 h230" stroke-width="4"/>
             <!-- cursor -->
-            <path d="M300 240 l0 50 l13 -12 l10 22 l11 -5 l-10 -21 l18 -2 z" fill="#f7f8f3" stroke-width="4"/>
+            <path d="M300 240 l0 50 l13 -12 l10 22 l11 -5 l-10 -21 l18 -2 z" fill="#f8fafb" stroke-width="4"/>
           </g>
           <!-- the trail: visits flowing into tokens -->
-          <circle cx="400" cy="250" r="7" fill="#9945ff" stroke-width="3.5"/>
-          <circle cx="424" cy="282" r="9" fill="#9945ff" stroke-width="3.5"/>
-          <circle cx="440" cy="318" r="11" fill="#14f195" stroke-width="3.5"/>
+          <circle cx="400" cy="250" r="7" fill="#1580b5" stroke-width="3.5"/>
+          <circle cx="424" cy="282" r="9" fill="#1580b5" stroke-width="3.5"/>
+          <circle cx="440" cy="318" r="11" fill="#5ec8f2" stroke-width="3.5"/>
           <!-- coin stack -->
           <ellipse cx="452" cy="452" rx="70" ry="18" fill="#0e0f14" stroke="none" opacity=".15"/>
-          <path d="M386 430 v-16 a66 17 0 0 0 132 0 v16 a66 17 0 0 1 -132 0 z" fill="#0b9e60"/>
-          <ellipse cx="452" cy="414" rx="66" ry="17" fill="#14f195"/>
-          <path d="M392 404 v-14 a60 15 0 0 0 120 0 v14 a60 15 0 0 1 -120 0 z" fill="#0b9e60"/>
-          <ellipse cx="452" cy="390" rx="60" ry="15" fill="#14f195"/>
+          <path d="M386 430 v-16 a66 17 0 0 0 132 0 v16 a66 17 0 0 1 -132 0 z" fill="#2b9fd3"/>
+          <ellipse cx="452" cy="414" rx="66" ry="17" fill="#5ec8f2"/>
+          <path d="M392 404 v-14 a60 15 0 0 0 120 0 v14 a60 15 0 0 1 -120 0 z" fill="#2b9fd3"/>
+          <ellipse cx="452" cy="390" rx="60" ry="15" fill="#5ec8f2"/>
           <!-- big coin -->
           <g class="float" style="animation-delay:-2.5s">
-            <circle cx="456" cy="330" r="58" fill="#14f195"/>
+            <circle cx="456" cy="330" r="58" fill="#5ec8f2"/>
             <circle cx="456" cy="330" r="42" stroke-width="3.5"/>
             <path d="M434 312 h44 M456 312 v40" stroke-width="8"/>
           </g>
           <!-- sparkles -->
           <path d="M500 140 l6 16 l16 6 l-16 6 l-6 16 l-6 -16 l-16 -6 l16 -6 z" fill="#ffd66b" stroke-width="3.5"/>
-          <path d="M40 380 l4 11 l11 4 l-11 4 l-4 11 l-4 -11 l-11 -4 l11 -4 z" fill="#cbb3ff" stroke-width="3"/>
+          <path d="M40 380 l4 11 l11 4 l-11 4 l-4 11 l-4 -11 l-11 -4 l11 -4 z" fill="#cdeefb" stroke-width="3"/>
         </svg>
       </div>
     </div>
@@ -325,7 +325,7 @@
         <p class="eyebrow">Get started</p>
         <h2>Install in one minute.</h2>
         <p class="section-lead">TRACE is not on the Chrome Web Store yet, so you load it directly into Chrome. It takes four clicks.</p>
-        <a class="btn green" href="/trace-extension.zip" download>Download extension (.zip)</a>
+        <a class="btn sky" href="/trace-extension.zip" download>Download extension (.zip)</a>
       </div>
       <div class="card">
         <ol>

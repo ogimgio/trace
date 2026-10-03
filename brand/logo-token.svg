@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>TRACE</title>
+  <rect width="512" height="512" fill="#0E1116"/>
+  <g fill="#5EC8F2" transform="translate(256 256) scale(0.62) translate(-254 -282)">
+    <circle cx="84" cy="168" r="20"/>
+    <circle cx="148" cy="168" r="26"/>
+    <path d="M222 136h196a32 32 0 0 1 0 64h-66v178a32 32 0 0 1-64 0V200h-66a32 32 0 0 1 0-64z"/>
+  </g>
+</svg>
