@@ -6,7 +6,10 @@ export const SERVER_URL: string = import.meta.env.VITE_SERVER_URL ?? 'https://tr
 export const PRIVACY_EMAIL = 'privacy@trace-rewards.vercel.app';
 export const PRIVACY_URL = `${SERVER_URL}/privacy.html`;
 
-export const DEFAULT_SYNC_INTERVAL_MINUTES = 7 * 24 * 60;
+// Rewards only count visits that reach the server within 3 days (see server/src/rewards/policy.ts):
+// sync every hour, and never less often than once a day.
+export const DEFAULT_SYNC_INTERVAL_MINUTES = 60;
+export const MAX_SYNC_INTERVAL_MINUTES = 24 * 60;
 export const RETRY_DELAY_MINUTES = 60;
 
 export const SYNC_ALARM = 'history-sync';

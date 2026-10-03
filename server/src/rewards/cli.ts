@@ -37,6 +37,12 @@ function print(plan: EpochPlan) {
   for (const p of plan.payouts) {
     console.log(`  ${p.kind.padEnd(7)} ${p.deviceId.slice(0, 8)}… → ${p.wallet.slice(0, 8)}…  ${String(p.points).padStart(5)} points  ${fmt(p.amount)}`);
   }
+  for (const [copy, original] of plan.nearDuplicateOf) {
+    console.log(`  ⚠ ${copy.slice(0, 8)}… copies the history of ${original.slice(0, 8)}…: excluded this week`);
+  }
+  for (const [deviceId, n] of plan.exactDuplicates) {
+    console.log(`  ⚠ ${deviceId.slice(0, 8)}…: ${n} visits copied from other devices, not counted`);
+  }
 }
 
 try {

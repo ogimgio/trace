@@ -1,5 +1,5 @@
 import { fetchRewards, fetchStats, startWalletLink, type DeviceStats, type RewardsInfo } from '../lib/api';
-import { PRIVACY_EMAIL, PRIVACY_URL, SERVER_URL, SYNC_ALARM } from '../lib/config';
+import { MAX_SYNC_INTERVAL_MINUTES, PRIVACY_EMAIL, PRIVACY_URL, SERVER_URL, SYNC_ALARM } from '../lib/config';
 import { sendMessage } from '../lib/messages';
 import { getState, setState, type State } from '../lib/storage';
 import './popup.css';
@@ -50,9 +50,9 @@ function rewardsCard(rewards: RewardsInfo | null, rewardsError: string): string 
     return `
       <section class="card">
         <h2>Rewards</h2>
-        <p>Link your Phantom wallet to get a ${rules.welcomeBonus} ${symbol} welcome bonus right away, then more every week.</p>
-        <button id="link-wallet" class="primary">Link with Phantom</button>
-        <p class="muted small">A page opens where you sign a message with Phantom to prove the wallet is yours. Signing is free and moves no funds.</p>
+        <p>Verify with World ID and link your Phantom wallet to earn every week, plus a welcome bonus of ${rules.welcomeInstallment} ${symbol} a week (up to ${rules.welcomeBonus} ${symbol}) while you keep browsing.</p>
+        <button id="link-wallet" class="primary">Verify and link wallet</button>
+        <p class="muted small">A page opens where you prove with World ID (Orb) that you are a unique human, then sign a message with Phantom. We only receive an anonymous code from World ID, never your identity. Signing is free and moves no funds.</p>
       </section>
     `;
   }
@@ -66,9 +66,13 @@ function rewardsCard(rewards: RewardsInfo | null, rewardsError: string): string 
     return `<li><span>${label}</span><span>${amount}</span><span class="muted">${status}</span></li>`;
   }).join('');
 
+  const verify = rewards.verified ? '' : `
+      <p class="error">Your wallet is not verified with World ID yet: it earns nothing until you verify it.</p>
+      <button id="link-wallet" class="primary">Verify with World ID</button>`;
+
   return `
     <section class="card">
-      <h2>Rewards</h2>
+      <h2>Rewards</h2>${verify}
       <p class="balance"><strong>${rewards.totalReceived}</strong> ${symbol} received</p>
       <dl>
         <dt>This week</dt><dd><strong>${week.points}</strong> points</dd>
@@ -80,8 +84,9 @@ function rewardsCard(rewards: RewardsInfo | null, rewardsError: string): string 
       ${payouts ? `<ul class="payouts">${payouts}</ul>` : ''}
       <p class="muted small">
         Points = unique pages (max ${rules.maxPages}) + ${rules.pointsPerActiveDay} for each day with at least
-        ${rules.minVisitsPerActiveDay} visits. Welcome bonus: ${rules.welcomeBonus} ${symbol} as soon as you link
-        your wallet, if your history has at least ${rules.welcomeMinActiveDays} active days.
+        ${rules.minVisitsPerActiveDay} visits. Only visits synced within ${rules.liveWindowHours / 24} days count, and
+        copies of another device's history count once. Welcome bonus: ${rules.welcomeInstallment} ${symbol} every week
+        with at least ${rules.welcomeMinActiveDays} active days, up to ${rules.welcomeBonus} ${symbol}.
       </p>
     </section>
   `;
@@ -189,7 +194,7 @@ async function renderActive(state: State): Promise<void> {
       <summary>Settings</summary>
       <label>
         Sync interval (minutes)
-        <input id="interval" type="number" min="1" value="${state.syncIntervalMinutes}" />
+        <input id="interval" type="number" min="1" max="${MAX_SYNC_INTERVAL_MINUTES}" value="${state.syncIntervalMinutes}" />
       </label>
       <button id="save-interval">Save interval</button>
       ${rewards?.wallet ? `<hr /><button id="unlink-wallet">Change wallet</button>
@@ -224,7 +229,7 @@ async function renderActive(state: State): Promise<void> {
 
   $('#save-interval').addEventListener('click', async () => {
     const minutes = Math.floor(Number($<HTMLInputElement>('#interval').value));
-    if (!(minutes >= 1)) return;
+    if (!(minutes >= 1 && minutes <= MAX_SYNC_INTERVAL_MINUTES)) return;
     await setState({ syncIntervalMinutes: minutes });
     await sendMessage({ type: 'reschedule' });
   });

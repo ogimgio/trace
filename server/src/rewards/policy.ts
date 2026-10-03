@@ -25,14 +25,28 @@ export const MIN_VISITS_PER_ACTIVE_DAY = 5;
 // (so at most 1700 TRACE per week). Undistributed budget stays in the pool.
 export const MAX_TOKENS_PER_POINT = 1n;
 
-// One-time bonus for linking a wallet with at least a week of history already uploaded.
-// Past history is not paid per visit: it is the easiest to fabricate.
-export const WELCOME_BONUS = 500n;
-export const WELCOME_MIN_ACTIVE_DAYS = 7;
+// Only "live" visits earn rewards: a visit counts if the server received it within LIVE_WINDOW_MS
+// of when it happened. Backfilled history (the first sync uploads ~90 days) is stored but never paid,
+// so a script cannot invent a week of browsing and cash it in a minute: it has to keep a browser
+// running for real, day after day. A small tolerance absorbs clocks running slightly ahead.
+export const LIVE_WINDOW_MS = 3 * DAY_MS;
+export const CLOCK_SKEW_MS = 10 * 60 * 1000;
 
-// The extension syncs every 7 days, so a week's data can arrive up to 7 days later.
-// A week is settled only after this grace period.
-export const SETTLEMENT_GRACE_MS = 8 * DAY_MS;
+// Welcome bonus, paid like interest: WELCOME_INSTALLMENT every week for the first weeks after linking,
+// up to WELCOME_BONUS in total per device and per wallet. Each installment requires
+// WELCOME_MIN_ACTIVE_DAYS live active days that week, so a wallet linked and then abandoned stops earning.
+export const WELCOME_BONUS = 500n;
+export const WELCOME_INSTALLMENT = 50n;
+export const WELCOME_MIN_ACTIVE_DAYS = 3;
+
+// Two devices are the same history copied (possibly with timestamps shifted by a few seconds) when this
+// share of the smaller device's (page, minute) keys also appears on the other one. Genuine users
+// overlap a few percent at most. Devices with fewer keys than the minimum are not compared.
+export const NEAR_DUPLICATE_OVERLAP = 0.5;
+export const NEAR_DUPLICATE_MIN_KEYS = 20;
+
+// Visits arriving later than LIVE_WINDOW_MS no longer count, so a week can be settled shortly after.
+export const SETTLEMENT_GRACE_MS = LIVE_WINDOW_MS + DAY_MS;
 
 export const toUnits = (tokens: bigint, decimals: number) => tokens * 10n ** BigInt(decimals);
 

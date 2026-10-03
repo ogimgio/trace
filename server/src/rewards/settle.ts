@@ -2,10 +2,11 @@ import { PublicKey, SendTransactionError } from '@solana/web3.js';
 import type { Sql } from '../db.ts';
 import type { Rewarder } from '../solana/rewards.ts';
 import {
-  MAX_TOKENS_PER_POINT, WELCOME_BONUS, WELCOME_MIN_ACTIVE_DAYS, MIN_VISITS_PER_ACTIVE_DAY,
+  CLOCK_SKEW_MS, LIVE_WINDOW_MS, MAX_TOKENS_PER_POINT, WELCOME_BONUS, WELCOME_INSTALLMENT, WELCOME_MIN_ACTIVE_DAYS,
   epochAt, epochBudget, epochRange, isSettleable, toUnits,
 } from './policy.ts';
-import { pageKey, scoreVisits, type ScoredVisit } from './points.ts';
+import { scoreVisits, type ScoredVisit } from './points.ts';
+import { checkVisits, type WeekVisit } from './eligibility.ts';
 
 // All guarantees against double payouts live in the database (unique constraints and conditional UPDATEs),
 // because in production several server instances run in parallel.
@@ -23,6 +24,8 @@ export interface EpochPlan {
   budget: bigint;
   totalPoints: number;
   payouts: PlannedPayout[];
+  exactDuplicates: Map<string, number>; // per device: visits dropped as copies of another device's
+  nearDuplicateOf: Map<string, string>; // copy device → original: the copy earns nothing this week
 }
 
 export interface PayoutRow {
@@ -50,22 +53,27 @@ export function distribute(budget: bigint, points: number[], maxPerPoint: bigint
   });
 }
 
-const visitsBetween = (sql: Sql, deviceId: string, from: number, to: number) => sql<ScoredVisit[]>`
-  SELECT url, visit_time AS "visitTime" FROM visits
-  WHERE device_id = ${deviceId} AND visit_time >= ${from} AND visit_time < ${to}
+// All visits of the week, from every device: duplicates are found by comparing devices with each other.
+const weekVisits = (sql: Sql, from: number, to: number) => sql<WeekVisit[]>`
+  SELECT device_id AS "deviceId", url, visit_time AS "visitTime", received_at AS "receivedAt" FROM visits
+  WHERE visit_time >= ${from} AND visit_time < ${to}
 `;
 
-// Computes who gets what for an epoch, without writing anything. Only devices with a wallet take part.
+// Computes who gets what for an epoch, without writing anything. Only devices whose wallet is verified with
+// World ID are paid, but every device takes part in the duplicate check.
 export async function planEpoch(sql: Sql, epoch: number, decimals: number): Promise<EpochPlan> {
   const { startsAt, endsAt } = epochRange(epoch);
-  const devices = await sql<{ id: string; wallet_address: string }[]>`
-    SELECT id, wallet_address FROM devices WHERE wallet_address IS NOT NULL ORDER BY id
+  const devices = await sql<{ id: string; wallet_address: string | null; created_at: number; verified: boolean }[]>`
+    SELECT d.id, d.wallet_address, d.created_at, EXISTS (SELECT 1 FROM worldid_verifications w WHERE w.wallet = d.wallet_address) AS verified
+    FROM devices d ORDER BY d.id
   `;
+  const check = checkVisits(await weekVisits(sql, startsAt, endsAt), new Map(devices.map((d) => [d.id, d.created_at])));
 
   const scored = [];
   for (const device of devices) {
-    const score = scoreVisits(await visitsBetween(sql, device.id, startsAt, endsAt));
-    if (score.points > 0) scored.push({ device, score });
+    if (!device.wallet_address || !device.verified) continue;
+    const score = scoreVisits(check.visits.get(device.id) ?? []);
+    if (score.points > 0) scored.push({ device: { ...device, wallet_address: device.wallet_address }, score });
   }
 
   const budget = epochBudget(epoch, decimals);
@@ -78,46 +86,58 @@ export async function planEpoch(sql: Sql, epoch: number, decimals: number): Prom
     amount: amounts[i],
   }));
 
-  // Welcome bonus not yet granted when the wallet was linked (e.g. history arrived later): grant it now.
-  for (const d of devices) {
-    if (!(await isWelcomeEligible(sql, d.id, d.wallet_address, endsAt))) continue;
-    payouts.push({ deviceId: d.id, wallet: d.wallet_address, kind: 'welcome', points: 0, amount: toUnits(WELCOME_BONUS, decimals) });
+  // Welcome bonus installments: active this week, and the device and the wallet are both still under the total.
+  const installment = toUnits(WELCOME_INSTALLMENT, decimals);
+  const total = toUnits(WELCOME_BONUS, decimals);
+  const paid = await welcomePaid(sql);
+  const walletsThisWeek = new Set<string>();
+  for (const { device, score } of scored) {
+    const wallet = device.wallet_address;
+    if (score.activeDays < WELCOME_MIN_ACTIVE_DAYS || walletsThisWeek.has(wallet)) continue;
+    if ((paid.byDevice.get(device.id) ?? 0n) + installment > total) continue;
+    if ((paid.byWallet.get(wallet) ?? 0n) + installment > total) continue;
+    walletsThisWeek.add(wallet);
+    payouts.push({ deviceId: device.id, wallet, kind: 'welcome', points: 0, amount: installment });
   }
 
-  return { epoch, budget, totalPoints: scored.reduce((a, s) => a + s.score.points, 0), payouts };
+  return {
+    epoch,
+    budget,
+    totalPoints: scored.reduce((a, s) => a + s.score.points, 0),
+    payouts,
+    exactDuplicates: check.exactDuplicates,
+    nearDuplicateOf: check.nearDuplicateOf,
+  };
 }
 
-function activeDays(visits: ScoredVisit[]): number {
-  const perDay = new Map<number, number>();
-  for (const v of visits) {
-    if (pageKey(v.url) === null) continue;
-    const day = Math.floor(v.visitTime / 86_400_000);
-    perDay.set(day, (perDay.get(day) ?? 0) + 1);
+// Welcome bonus already granted, per device and per wallet (including payouts not yet sent).
+async function welcomePaid(sql: Sql) {
+  const rows = await sql<{ device_id: string; wallet: string; amount: string }[]>`
+    SELECT device_id, wallet, amount FROM reward_payouts WHERE kind = 'welcome'
+  `;
+  const byDevice = new Map<string, bigint>();
+  const byWallet = new Map<string, bigint>();
+  for (const r of rows) {
+    byDevice.set(r.device_id, (byDevice.get(r.device_id) ?? 0n) + BigInt(r.amount));
+    byWallet.set(r.wallet, (byWallet.get(r.wallet) ?? 0n) + BigInt(r.amount));
   }
-  return [...perDay.values()].filter((n) => n >= MIN_VISITS_PER_ACTIVE_DAY).length;
+  return { byDevice, byWallet };
 }
 
-// The welcome bonus is granted once per device and per wallet (linking the same wallet to several
-// devices does not multiply it), to anyone with at least WELCOME_MIN_ACTIVE_DAYS active days of history.
-export async function isWelcomeEligible(sql: Sql, deviceId: string, wallet: string, until: number): Promise<boolean> {
-  const [already] = await sql`
-    SELECT 1 FROM reward_payouts WHERE kind = 'welcome' AND (device_id = ${deviceId} OR wallet = ${wallet}) LIMIT 1
+// Visits of one device that would count right now: the estimate shown in the extension. It applies the live
+// window and drops exact copies of another device's visits; near duplicates are only detected at settlement.
+export function countableVisits(sql: Sql, deviceId: string, from: number, to: number) {
+  return sql<ScoredVisit[]>`
+    SELECT v.url, v.visit_time AS "visitTime" FROM visits v
+    WHERE v.device_id = ${deviceId} AND v.visit_time >= ${from} AND v.visit_time < ${to}
+      AND v.received_at - v.visit_time <= ${LIVE_WINDOW_MS} AND v.visit_time - v.received_at <= ${CLOCK_SKEW_MS}
+      AND NOT EXISTS (
+        SELECT 1 FROM visits o
+        WHERE o.visit_time = v.visit_time AND o.url = v.url AND o.device_id <> v.device_id
+          AND o.received_at - o.visit_time <= ${LIVE_WINDOW_MS} AND o.visit_time - o.received_at <= ${CLOCK_SKEW_MS}
+          AND (o.received_at < v.received_at OR (o.received_at = v.received_at AND o.device_id < v.device_id))
+      )
   `;
-  if (already) return false;
-  return activeDays(await visitsBetween(sql, deviceId, 0, until)) >= WELCOME_MIN_ACTIVE_DAYS;
-}
-
-// On wallet link: if eligible, immediately creates the welcome bonus payout ('pending').
-// Returns the created row, or null if not eligible (or another request just created it).
-export async function grantWelcome(sql: Sql, deviceId: string, wallet: string, decimals: number, now = Date.now()): Promise<PayoutRow | null> {
-  if (!(await isWelcomeEligible(sql, deviceId, wallet, now))) return null;
-  const [row] = await sql<PayoutRow[]>`
-    INSERT INTO reward_payouts (epoch, device_id, wallet, kind, points, amount, status, created_at)
-    VALUES (${epochAt(now)}, ${deviceId}, ${wallet}, 'welcome', 0, ${toUnits(WELCOME_BONUS, decimals).toString()}, 'pending', ${now})
-    ON CONFLICT DO NOTHING
-    RETURNING *
-  `;
-  return row ?? null;
 }
 
 export async function isSettled(sql: Sql, epoch: number): Promise<boolean> {

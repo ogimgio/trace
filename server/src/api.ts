@@ -3,6 +3,14 @@ import { resolve } from 'node:path';
 import type { Sql } from './db.ts';
 import { formatUnits } from './solana/rewards.ts';
 import { createRewardsRouter, type RewardsOptions } from './rewards/routes.ts';
+import { createLimiter, DEFAULT_RATE_LIMITS, type RateLimits } from './ratelimit.ts';
+
+export interface AppOptions extends RewardsOptions {
+  // Per-IP limits (see ratelimit.ts); false disables them (tests).
+  rateLimits?: RateLimits | false;
+  // Salt for hashing IPs before they are stored.
+  ipSalt?: string;
+}
 
 export const MAX_VISITS_PER_REQUEST = 5000;
 
@@ -65,8 +73,9 @@ function parseUpload(body: unknown): Upload | string {
 // Visits inserted per query (Postgres allows at most 65535 parameters per query).
 const INSERT_CHUNK = 1000;
 
-export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
+export function createApp(sql: Sql, { rateLimits = DEFAULT_RATE_LIMITS, ipSalt = 'trace', ...rewards }: AppOptions = {}) {
   const app = express();
+  const limiter = createLimiter(sql, rateLimits, ipSalt, rewards.now ?? Date.now);
   app.use(express.json({ limit: '25mb' }));
   // Local only; on Vercel public/ is served by the CDN, but "/" still reaches us.
   app.use(express.static(resolve(import.meta.dirname, '../public')));
@@ -95,12 +104,16 @@ export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
 
   // Receives a batch of visits. Visits already stored (same device + visitId)
   // are ignored, so the extension can retry an upload without creating duplicates.
-  app.post('/api/visits', async (req, res) => {
+  app.post('/api/visits', limiter.middleware('uploads'), async (req, res) => {
     const upload = parseUpload(req.body);
     if (typeof upload === 'string') {
       res.status(400).json({ error: upload });
       return;
     }
+
+    // Creating devices is what a script farming rewards does in bulk: few new devices per IP.
+    const [known] = await sql`SELECT 1 FROM devices WHERE id = ${upload.deviceId}`;
+    if (!known && !(await limiter.check(req, res, 'newDevices'))) return;
 
     const now = Date.now();
     const rows = upload.visits.map((v) => ({
@@ -160,6 +173,8 @@ export function createApp(sql: Sql, rewards: RewardsOptions = {}) {
     });
   });
 
+  app.post(['/api/devices/:id/link-challenge', '/api/link/:code', '/api/link/:code/worldid/start', '/api/link/:code/worldid'],
+    limiter.middleware('links'));
   app.use(createRewardsRouter(sql, rewards));
 
   return app;

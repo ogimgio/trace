@@ -15,7 +15,7 @@ export async function startTestDb(): Promise<{ sql: Sql; reset: () => Promise<vo
   return {
     sql,
     reset: async () => {
-      await sql`TRUNCATE devices, visits, uploads, reward_epochs, reward_payouts, wallet_challenges RESTART IDENTITY CASCADE`;
+      await sql`TRUNCATE devices, visits, uploads, reward_epochs, reward_payouts, wallet_challenges, wallet_links, rate_limits, worldid_verifications RESTART IDENTITY CASCADE`;
     },
     stop: async () => {
       await sql.end();

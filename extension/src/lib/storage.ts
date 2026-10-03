@@ -1,6 +1,6 @@
-import { DEFAULT_SYNC_INTERVAL_MINUTES } from './config';
+import { DEFAULT_SYNC_INTERVAL_MINUTES, MAX_SYNC_INTERVAL_MINUTES } from './config';
 
-export type SyncTrigger = 'initial' | 'manual' | 'alarm' | 'retry';
+export type SyncTrigger = 'initial' | 'manual' | 'alarm' | 'retry' | 'startup';
 
 export interface SyncResult {
   at: number;
@@ -33,7 +33,9 @@ const DEFAULTS: State = {
 
 export async function getState(): Promise<State> {
   const stored = (await chrome.storage.local.get(null)) as Partial<State>;
-  return { ...DEFAULTS, ...stored };
+  const state = { ...DEFAULTS, ...stored };
+  // Older installs stored a weekly interval: clamp it, or their visits would arrive too late to earn rewards.
+  return { ...state, syncIntervalMinutes: Math.min(state.syncIntervalMinutes, MAX_SYNC_INTERVAL_MINUTES) };
 }
 
 export function setState(patch: Partial<State>): Promise<void> {

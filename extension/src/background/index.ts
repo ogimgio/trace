@@ -67,6 +67,7 @@ async function scheduleSync(): Promise<void> {
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await ensureDeviceId();
+  if (reason === chrome.runtime.OnInstalledReason.UPDATE) await chrome.alarms.clear(SYNC_ALARM); // apply the new interval
   await scheduleSync();
   if (reason === chrome.runtime.OnInstalledReason.INSTALL) {
     // Welcome page in a tab: the permission dialog does not close it, unlike the popup.
@@ -74,8 +75,10 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   }
 });
 
-chrome.runtime.onStartup.addListener(() => {
-  void scheduleSync();
+// On browser start, send right away the visits of the last session that the hourly sync did not catch.
+chrome.runtime.onStartup.addListener(async () => {
+  await scheduleSync();
+  void runSync('startup');
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

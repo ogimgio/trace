@@ -37,6 +37,7 @@ export async function fetchStats(deviceId: string): Promise<DeviceStats | null> 
 export interface RewardsInfo {
   symbol: string;
   wallet: string | null;
+  verified: boolean; // wallet verified with World ID: only verified wallets are paid
   totalReceived: string;
   currentWeek: {
     epoch: number;
@@ -63,7 +64,9 @@ export interface RewardsInfo {
     minVisitsPerActiveDay: number;
     maxTokensPerPoint: string;
     welcomeBonus: string;
+    welcomeInstallment: string;
     welcomeMinActiveDays: number;
+    liveWindowHours: number;
   };
 }
 

@@ -10,7 +10,7 @@ let close: () => Promise<void>;
 
 before(async () => {
   const db = await startTestDb();
-  const server = createApp(db.sql).listen(0, '127.0.0.1');
+  const server = createApp(db.sql, { rateLimits: false }).listen(0, '127.0.0.1'); // see ratelimit.test.ts
   await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
@@ -100,4 +100,13 @@ test('public stats expose only aggregate numbers', async () => {
   assert.deepEqual(Object.keys(stats).sort(), ['devices', 'payouts', 'tokensPaid', 'visitsShared']);
   assert.ok(stats.visitsShared > 0);
   assert.equal(stats.tokensPaid, '0');
+});
+
+test('without World ID configured, wallets cannot be linked (fail closed)', async () => {
+  await upload('dev-noworld', [visit(1)]);
+  const { code } = await (await fetch(`${base}/api/devices/dev-noworld/link-challenge`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  })).json();
+  const start = await fetch(`${base}/api/link/${code}/worldid/start`, { method: 'POST' });
+  assert.equal(start.status, 503);
 });

@@ -26,6 +26,7 @@
     header h1 { margin: 0; font-size: 20px; letter-spacing: 0.12em; }
     h2 { margin: 0 0 8px; font-size: 17px; }
     p { margin: 0 0 12px; }
+    .qr img { display: block; margin: 8px auto; background: #fff; border-radius: 8px; image-rendering: pixelated; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
     pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: var(--muted); }
     button { width: 100%; padding: 11px 12px; border: 0; border-radius: 8px; background: var(--accent);
@@ -42,9 +43,12 @@
 <body>
   <main>
     <header><img src="/logo.svg" alt="" width="32" height="32"><h1>TRACE</h1></header>
-    <div id="app"><p class="muted">Caricamento…</p></div>
+    <div id="app"><p class="muted">Loading…</p></div>
     <p id="msg"></p>
   </main>
+  <!-- World ID (IDKit, loads its WASM from the same folder) and a QR code generator -->
+  <script src="https://cdn.jsdelivr.net/npm/@worldcoin/idkit-core@4.3.0/dist/idkit.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
   <script type="module">
     const app = document.getElementById('app');
     const msg = document.getElementById('msg');
@@ -75,16 +79,95 @@
         app.replaceChildren(el('div', { className: 'card' }, el('p', { textContent: `${text} Start again from the TRACE extension.` })));
         return;
       }
+      // Linking needs World ID first (one human, one wallet); unlinking only the wallet's signature.
+      if (challenge.action === 'link' && !challenge.worldIdVerified) verifyHuman(challenge);
+      else sign(challenge, challenge.currentWallet);
+    }
 
+    // Step 1: prove with World ID (Orb) that a unique human is behind this link.
+    function verifyHuman(challenge) {
+      const button = el('button', { textContent: 'Verify with World ID' });
+      const qr = el('div', { className: 'qr' });
+      app.replaceChildren(
+        el('div', { className: 'card' },
+          el('p', { className: 'muted', textContent: 'Step 1 of 2' }),
+          el('h2', { textContent: 'Prove you are a unique human' }),
+          el('p', { textContent: 'TRACE rewards real people, one wallet each. Verify with World ID: you need World App and an Orb-verified World ID.' }),
+          el('p', { className: 'muted', textContent: 'We only receive an anonymous code that is the same each time you verify with TRACE. No name, no photo, no iris data, nothing that identifies you. It is used only to stop duplicate accounts and is never shared.' }),
+          qr,
+        ),
+        button,
+      );
+
+      button.addEventListener('click', async () => {
+        if (!window.IDKit || !window.qrcode) {
+          show('World ID could not be loaded. Check your connection and reload the page.');
+          return;
+        }
+        button.disabled = true;
+        show('');
+        try {
+          const start = await fetch(`/api/link/${encodeURIComponent(code)}/worldid/start`, { method: 'POST' });
+          const params = await start.json();
+          if (!start.ok) throw new Error(params.error ?? `Error ${start.status}`);
+
+          const request = await IDKit.request({
+            app_id: params.appId,
+            action: params.action,
+            rp_context: params.rpContext,
+            environment: params.environment,
+            // World ID 4.0 only: legacy proofs have different nullifiers, so one human could count twice.
+            allow_legacy_proofs: false,
+          }).preset(IDKit.proofOfHuman({ signal: params.signal }));
+
+          const image = qrcode(0, 'M');
+          image.addData(request.connectorURI);
+          image.make();
+          qr.replaceChildren(
+            el('p', { textContent: 'Scan with your phone camera or World App:' }),
+            el('img', { src: image.createDataURL(5, 2), alt: 'World ID QR code' }),
+            el('p', {}, el('a', { href: request.connectorURI, target: '_blank', rel: 'noopener', textContent: 'On your phone? Open World App ↗' })),
+          );
+          show('Waiting for World App…', 'muted');
+
+          const completion = await request.pollUntilCompletion();
+          if (!completion.success) {
+            throw new Error(completion.error === 'credential_unavailable'
+              ? 'An Orb-verified World ID is required. Find an Orb in World App, then try again.'
+              : `World ID: ${completion.error}`);
+          }
+          const verify = await fetch(`/api/link/${encodeURIComponent(code)}/worldid`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(completion.result),
+          });
+          const body = await verify.json();
+          if (!verify.ok) throw new Error(body.error ?? `Error ${verify.status}`);
+          show('');
+          sign(challenge, challenge.currentWallet ?? body.boundWallet);
+        } catch (err) {
+          qr.replaceChildren();
+          button.disabled = false;
+          show(String(err?.message ?? err));
+        }
+      });
+    }
+
+    // Step 2 (or the only step, to unlink): sign the challenge with Phantom. `requiredWallet`: the wallet
+    // that must sign when this human or this device already has one.
+    function sign(challenge, requiredWallet) {
       const linking = challenge.action === 'link';
+      const mustUse = linking ? requiredWallet : challenge.wallet;
       const button = el('button', { textContent: linking ? 'Connect Phantom and sign' : `Sign with ${short(challenge.wallet)} and unlink` });
       app.replaceChildren(
         el('div', { className: 'card' },
+          ...(linking ? [el('p', { className: 'muted', textContent: 'Step 2 of 2 · World ID verified ✓' })] : []),
           el('h2', { textContent: linking ? 'Link your Solana wallet' : 'Unlink wallet' }),
           el('p', { textContent: linking
             ? 'Sign a message with Phantom to prove the wallet is yours. Your TRACE rewards will be sent there.'
             : 'For security, only the linked wallet can unlink itself. Select this account in Phantom:' }),
-          ...(linking ? [] : [el('p', {}, el('code', { textContent: challenge.wallet }))]),
+          ...(linking && mustUse ? [el('p', { textContent: 'Your World ID can only be linked to this wallet. Select it in Phantom:' })] : []),
+          ...(mustUse ? [el('p', {}, el('code', { textContent: mustUse }))] : []),
           el('p', { className: 'muted', textContent: 'Signing is free and moves no funds. This is the message:' }),
           el('pre', { textContent: challenge.message }),
         ),
@@ -102,8 +185,8 @@
         try {
           const { publicKey } = await wallet.connect();
           const address = publicKey.toString();
-          if (!linking && address !== challenge.wallet) {
-            throw new Error(`Phantom has ${short(address)} selected: switch to account ${short(challenge.wallet)} and try again.`);
+          if (mustUse && address !== mustUse) {
+            throw new Error(`Phantom has ${short(address)} selected: switch to account ${short(mustUse)} and try again.`);
           }
           const { signature } = await wallet.signMessage(new TextEncoder().encode(challenge.message), 'utf8');
           const res = await fetch(`/api/link/${encodeURIComponent(code)}`, {
@@ -126,7 +209,7 @@
       if (result.action === 'unlink') {
         app.replaceChildren(el('div', { className: 'card' },
           el('h2', { className: 'ok', textContent: 'Wallet unlinked' }),
-          el('p', { textContent: 'You can now link another one from the TRACE extension. You can close this tab.' })));
+          el('p', { textContent: 'Your World ID stays tied to this wallet: to earn again, link this same wallet from the TRACE extension. You can close this tab.' })));
         return;
       }
       const lines = [
@@ -134,11 +217,8 @@
         el('p', {}, el('code', { textContent: result.wallet })),
       ];
       const w = result.welcome;
-      if (w?.status === 'sent') {
-        lines.push(el('p', { textContent: `Welcome! We just sent you ${w.amount} TRACE. ` },
-          el('a', { href: w.explorerUrl, target: '_blank', rel: 'noopener', textContent: 'View transaction ↗' })));
-      } else if (w) {
-        lines.push(el('p', { textContent: `Your ${w.amount} TRACE welcome bonus is queued and will arrive shortly.` }));
+      if (w) {
+        lines.push(el('p', { textContent: `Welcome bonus: ${w.installment} TRACE every week you browse at least ${w.minActiveDays} days, up to ${w.total} TRACE, paid with your weekly rewards.` }));
       }
       lines.push(el('p', { className: 'muted', textContent: 'You can close this tab: points and payouts are in the extension.' }));
       app.replaceChildren(el('div', { className: 'card' }, ...lines));

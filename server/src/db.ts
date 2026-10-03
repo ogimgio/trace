@@ -27,6 +27,8 @@ export const SCHEMA = `
   );
 
   CREATE INDEX IF NOT EXISTS visits_device_time ON visits (device_id, visit_time);
+  -- Duplicate check: the same visit (url + exact visit_time) uploaded by several devices.
+  CREATE INDEX IF NOT EXISTS visits_time ON visits (visit_time);
 
   CREATE TABLE IF NOT EXISTS uploads (
     id               bigserial PRIMARY KEY,
@@ -61,8 +63,11 @@ export const SCHEMA = `
     UNIQUE (epoch, device_id, kind)
   );
 
-  CREATE UNIQUE INDEX IF NOT EXISTS reward_payouts_one_welcome ON reward_payouts (device_id) WHERE kind = 'welcome';
-  CREATE UNIQUE INDEX IF NOT EXISTS reward_payouts_one_welcome_per_wallet ON reward_payouts (wallet) WHERE kind = 'welcome';
+  -- The welcome bonus is paid in weekly installments: at most one per wallet per week
+  -- (one per device per week is already guaranteed by the UNIQUE above).
+  DROP INDEX IF EXISTS reward_payouts_one_welcome;
+  DROP INDEX IF EXISTS reward_payouts_one_welcome_per_wallet;
+  CREATE UNIQUE INDEX IF NOT EXISTS reward_payouts_welcome_wallet_week ON reward_payouts (epoch, wallet) WHERE kind = 'welcome';
   CREATE INDEX IF NOT EXISTS reward_payouts_device ON reward_payouts (device_id, epoch);
 
   CREATE TABLE IF NOT EXISTS wallet_challenges (
@@ -75,6 +80,42 @@ export const SCHEMA = `
     used_at     bigint
   );
 
+  -- World ID: the verified link in progress (nonce of the signed request, then the nullifier it produced).
+  ALTER TABLE wallet_challenges ADD COLUMN IF NOT EXISTS worldid_nonce text;
+  ALTER TABLE wallet_challenges ADD COLUMN IF NOT EXISTS worldid_nullifier numeric(78, 0);
+
+  -- One human, one wallet. The nullifier is the anonymous number World ID gives for a person and this app:
+  -- no name, no biometrics. It is bound to the first wallet forever (a human cannot verify a second wallet)
+  -- and is kept even if a device's data is deleted, otherwise deleting would reset the one-wallet rule.
+  CREATE TABLE IF NOT EXISTS worldid_verifications (
+    action       text NOT NULL,
+    nullifier    numeric(78, 0) NOT NULL,
+    wallet       text NOT NULL UNIQUE,
+    verified_at  bigint NOT NULL,
+    PRIMARY KEY (action, nullifier)
+  );
+
+  -- Every link and unlink, so the full wallet ↔ device history is known even after a wallet is replaced.
+  CREATE TABLE IF NOT EXISTS wallet_links (
+    id          bigserial PRIMARY KEY,
+    device_id   text NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    wallet      text NOT NULL,
+    action      text NOT NULL CHECK (action IN ('link', 'unlink')),
+    created_at  bigint NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS wallet_links_wallet ON wallet_links (wallet);
+  CREATE INDEX IF NOT EXISTS wallet_links_device ON wallet_links (device_id);
+
+  -- Rate limit counters per (rule, hashed IP, time window). Raw IPs are never stored; rows are purged daily.
+  CREATE TABLE IF NOT EXISTS rate_limits (
+    rule          text NOT NULL,
+    key           text NOT NULL,
+    window_start  bigint NOT NULL,
+    count         integer NOT NULL,
+    PRIMARY KEY (rule, key, window_start)
+  );
+
   -- Supabase exposes "public" tables via its API with the anon key. With RLS enabled and no policies
   -- that access is closed: only the server, which connects as the table owner, reads and writes.
   ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
@@ -83,6 +124,9 @@ export const SCHEMA = `
   ALTER TABLE reward_epochs ENABLE ROW LEVEL SECURITY;
   ALTER TABLE reward_payouts ENABLE ROW LEVEL SECURITY;
   ALTER TABLE wallet_challenges ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE wallet_links ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE worldid_verifications ENABLE ROW LEVEL SECURITY;
 `;
 
 export function connect(url: string, options: postgres.Options<{}> = {}): Sql {

@@ -19,6 +19,7 @@
     "@solana/spl-token": "^0.4.15",
     "@solana/spl-token-metadata": "^0.1.6",
     "@solana/web3.js": "^1.99.0",
+    "@worldcoin/idkit-core": "^4.3.0",
     "express": "^5.2.1",
     "postgres": "^3.4.9"
   },
