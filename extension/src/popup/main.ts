@@ -1,7 +1,12 @@
-import { fetchRewards, fetchStats, startWalletLink, type DeviceStats, type RewardsInfo } from '../lib/api';
+import {
+  claimRewards, fetchRewards, fetchStats, type DeviceStats, type Offer, type Payout, type PayoutStatus, type RewardsInfo,
+} from '../lib/api';
 import { MAX_SYNC_INTERVAL_MINUTES, PRIVACY_EMAIL, PRIVACY_URL, SERVER_URL, SYNC_ALARM } from '../lib/config';
 import { sendMessage } from '../lib/messages';
 import { getState, setState, type State } from '../lib/storage';
+import {
+  closeModal, isModalOpen, showCelebration, showConnectWallet, showNotEnoughData, showOffer, showWalletConnected,
+} from './modals';
 import './popup.css';
 
 const app = document.getElementById('app')!;
@@ -31,65 +36,124 @@ const deletionMailto = (deviceId: string) => `mailto:${PRIVACY_EMAIL}?${new URLS
   body: `Device ID: ${deviceId}\n\nI would like to (access / delete) the data I shared with TRACE.`,
 }).toString().replaceAll('+', '%20')}`;
 
-const STATUS_LABEL: Record<RewardsInfo['payouts'][number]['status'], string> = {
+const STATUS_LABEL: Record<PayoutStatus, string> = {
   pending: 'queued',
   sending: 'checking',
   sent: 'sent',
   failed: 'retrying',
+  held: 'under review',
+  rejected: 'rejected',
 };
 
+
+// The offer is identified by its value and last day: a new day or a new sync makes it a new offer, shown again.
+const offerKey = (o: Offer) => `${o.points}:${o.lastDay}`;
+const canClaim = (r: RewardsInfo) => r.wallet !== null && r.deviceChecked;
+
+const PAYOUT_LABEL = { claim: 'Shared data', welcome: 'Welcome bonus' } as const;
 
 function rewardsCard(rewards: RewardsInfo | null, rewardsError: string): string {
   if (rewardsError) return `<section class="card"><h2>Rewards</h2><p class="error">${escape(rewardsError)}</p></section>`;
   if (!rewards) {
-    return `<section class="card"><h2>Rewards</h2><p class="muted">You can link your wallet after the first sync.</p></section>`;
+    return `<section class="card"><h2>Rewards</h2><p class="muted">Your reward appears after the first sync.</p></section>`;
   }
 
-  const { symbol, currentWeek: week, rules } = rewards;
-  if (!rewards.wallet) {
-    return `
-      <section class="card">
-        <h2>Rewards</h2>
-        <p>Verify with World ID and link your Phantom wallet to earn every week, plus a welcome bonus of ${rules.welcomeInstallment} ${symbol} a week (up to ${rules.welcomeBonus} ${symbol}) while you keep browsing.</p>
-        <button id="link-wallet" class="primary">Verify and link wallet</button>
-        <p class="muted small">A page opens where you prove with World ID (Orb) that you are a unique human, then sign a message with Phantom. We only receive an anonymous code from World ID, never your identity. Signing is free and moves no funds.</p>
-      </section>
-    `;
-  }
+  const { symbol, offer, rules } = rewards;
+  // One action at a time: claim what is ready (linking the wallet first if needed), or link the wallet.
+  const action = offer.points > 0
+    ? `<div class="claim"><span>Ready to claim</span><strong>${escape(offer.amount)} ${symbol}</strong></div>
+       <button id="claim" class="primary">${canClaim(rewards) ? 'Review & claim' : 'Connect wallet to claim'}</button>`
+    : offer.copied
+      ? `<p class="error">This history copies another device's: it can't be rewarded.</p>`
+      : !rewards.wallet
+        ? `<button id="link-wallet" class="primary">Connect wallet</button>`
+        : `<p class="muted small">Nothing new to claim: every day you keep sharing adds to your reward.</p>`;
+  const relink = rewards.wallet && !rewards.deviceChecked ? `
+      <p class="error">This wallet was linked before the device check existed: link it again to claim.</p>
+      <button id="link-wallet">Link again with Phantom</button>` : '';
 
   const payouts = rewards.payouts.slice(0, 5).map((p) => {
-    const amount = `${p.amount} ${symbol}`;
     const status = p.explorerUrl
       ? `<a href="${escape(p.explorerUrl)}" target="_blank" rel="noopener">${STATUS_LABEL[p.status]} ↗</a>`
       : STATUS_LABEL[p.status];
-    const label = p.kind === 'welcome' ? 'Welcome bonus' : `Week of ${formatDay(p.weekStartsAt)}`;
-    return `<li><span>${label}</span><span>${amount}</span><span class="muted">${status}</span></li>`;
+    const label = p.kind === 'weekly' ? `Week of ${formatDay(p.weekStartsAt)}` : PAYOUT_LABEL[p.kind];
+    return `<li><span>${label}</span><span>${p.amount} ${symbol}</span><span class="muted">${status}</span></li>`;
   }).join('');
-
-  const verify = rewards.verified ? '' : `
-      <p class="error">Your wallet is not verified with World ID yet: it earns nothing until you verify it.</p>
-      <button id="link-wallet" class="primary">Verify with World ID</button>`;
 
   return `
     <section class="card">
-      <h2>Rewards</h2>${verify}
+      <h2>Rewards</h2>
       <p class="balance"><strong>${rewards.totalReceived}</strong> ${symbol} received</p>
-      <dl>
-        <dt>This week</dt><dd><strong>${week.points}</strong> points</dd>
-        <dt>Unique pages</dt><dd>${week.pages}${week.pages > rules.maxPages ? ` (max ${rules.maxPages} count)` : ''}</dd>
-        <dt>Active days</dt><dd>${week.activeDays} × ${rules.pointsPerActiveDay} points</dd>
-        <dt>Payout</dt><dd>up to ${week.maxReward} ${symbol}, from ${formatDay(week.payableFrom)}</dd>
-        <dt>Wallet</dt><dd><code title="${escape(rewards.wallet)}">${shortAddress(rewards.wallet)}</code></dd>
-      </dl>
+      ${action}${relink}
+      ${canClaim(rewards) ? `<p class="connected">✓ Wallet connected · <code title="${escape(rewards.wallet!)}">${shortAddress(rewards.wallet!)}</code></p>` : ''}
       ${payouts ? `<ul class="payouts">${payouts}</ul>` : ''}
       <p class="muted small">
-        Points = unique pages (max ${rules.maxPages}) + ${rules.pointsPerActiveDay} for each day with at least
-        ${rules.minVisitsPerActiveDay} visits. Only visits synced within ${rules.liveWindowHours / 24} days count, and
-        copies of another device's history count once. Welcome bonus: ${rules.welcomeInstallment} ${symbol} every week
-        with at least ${rules.welcomeMinActiveDays} active days, up to ${rules.welcomeBonus} ${symbol}.
+        Each day you share earns its unique pages (max ${rules.maxPagesPerDay}) + ${rules.pointsPerActiveDay} if you made at
+        least ${rules.minVisitsPerActiveDay} visits, and 1 point = ${rules.tokensPerPoint} ${symbol}. Your last
+        ${rules.historyDays} days of history count, then every new day; each day is rewarded once. Welcome bonus:
+        ${rules.welcomeInstallment} ${symbol} every week with at least ${rules.welcomeMinActiveDays} active days, up to ${rules.welcomeBonus} ${symbol}.
       </p>
     </section>
   `;
+}
+
+// Linking happens on a page served by the server, where Phantom signs (Phantom isn't available in extension
+// pages). The service worker opens it in a small popup window and closes it when the wallet is linked.
+async function openLinkPage(action: 'link' | 'unlink'): Promise<void> {
+  const response = await sendMessage({ type: 'link-wallet', action }) as { ok: boolean; error?: string } | undefined;
+  if (!response?.ok) throw new Error(response?.error ?? 'could not open the wallet window');
+}
+
+// Reviews the offer: Confirm claims it and celebrates (or, without a wallet, opens the link page; the offer
+// shows again once the wallet is linked). Cancel hides this offer until it changes.
+async function reviewOffer(state: State, rewards: RewardsInfo): Promise<void> {
+  let payout: Payout | null = null;
+  const result = await showOffer(rewards.offer, rewards.symbol, { walletLinked: canClaim(rewards) }, async () => {
+    if (!canClaim(rewards)) return openLinkPage('link');
+    payout = (await claimRewards(state.deviceId)).payout;
+  });
+  if (result === 'cancelled') {
+    await setState({ dismissedOffer: offerKey(rewards.offer) });
+    return;
+  }
+  closeModal();
+  if (payout) {
+    await showCelebration(payout, rewards.symbol);
+    await render();
+  }
+}
+
+// Shows what deserves attention, one modal at a time:
+// 1. the wallet just linked;
+// 2. after a sync the user started (first sync, "Sync now"): connect the wallet if there is none, the offer,
+//    or "not enough data yet" when there is nothing to reward;
+// 3. otherwise (hourly syncs), a new offer, unless the user already chose not to claim it yet.
+let modalFlow = false;
+async function showPendingModals(state: State, rewards: RewardsInfo | null): Promise<void> {
+  if (!rewards || modalFlow || isModalOpen()) return;
+  modalFlow = true;
+  try {
+    if (canClaim(rewards) && state.knownWallet !== rewards.wallet) {
+      await showWalletConnected(rewards.wallet!);
+      await setState({ knownWallet: rewards.wallet });
+    }
+
+    const last = state.lastSyncResult;
+    const newSync = last?.ok === true && last.at !== state.lastSyncSeen;
+    if (newSync) await setState({ lastSyncSeen: last.at });
+    const userSync = newSync && (last.trigger === 'manual' || last.trigger === 'initial');
+    const hasOffer = rewards.offer.points > 0;
+
+    if (hasOffer && (userSync || offerKey(rewards.offer) !== state.dismissedOffer)) {
+      await reviewOffer(state, rewards); // without a wallet, its Confirm is "Connect wallet to claim"
+    } else if (userSync && !canClaim(rewards)) {
+      if (await showConnectWallet()) await openLinkPage('link').catch(() => {});
+    } else if (userSync) {
+      await showNotEnoughData({ minVisits: rewards.rules.minVisitsPerActiveDay });
+    }
+  } finally {
+    modalFlow = false;
+  }
 }
 
 const formatDay = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
@@ -104,7 +168,7 @@ async function render(): Promise<void> {
 function renderConsent(state: State): void {
   app.innerHTML = `
     ${header}
-    <p class="lead">Share your browsing history and earn TRACE, a token on Solana, every week.</p>
+    <p class="lead">Share your browsing history and earn TRACE, a token on Solana: your past history right away, then every day you keep sharing.</p>
 
     <section class="card">
       <h2>What is shared</h2>
@@ -212,20 +276,21 @@ async function renderActive(state: State): Promise<void> {
 
   $('#sync').addEventListener('click', () => sendMessage({ type: 'sync-now' }));
 
-  // Linking happens in a tab served by the server, where Phantom signs (Phantom isn't available in the popup).
-  const openLinkPage = (action: 'link' | 'unlink') => async (event: Event) => {
+  const linkButton = (action: 'link' | 'unlink') => async (event: Event) => {
     const button = event.currentTarget as HTMLButtonElement;
     button.disabled = true;
     try {
-      const { url } = await startWalletLink(state.deviceId, action);
-      await chrome.tabs.create({ url });
+      await openLinkPage(action);
     } catch (err) {
       button.disabled = false;
       $('#msg').textContent = `Couldn't start wallet linking: ${err}`;
     }
   };
-  app.querySelector('#link-wallet')?.addEventListener('click', openLinkPage('link'));
-  app.querySelector('#unlink-wallet')?.addEventListener('click', openLinkPage('unlink'));
+  app.querySelector('#link-wallet')?.addEventListener('click', linkButton('link'));
+  app.querySelector('#unlink-wallet')?.addEventListener('click', linkButton('unlink'));
+  app.querySelector('#claim')?.addEventListener('click', () => {
+    if (rewards && !isModalOpen()) void reviewOffer(state, rewards);
+  });
 
   $('#save-interval').addEventListener('click', async () => {
     const minutes = Math.floor(Number($<HTMLInputElement>('#interval').value));
@@ -240,6 +305,8 @@ async function renderActive(state: State): Promise<void> {
     await chrome.permissions.remove({ permissions: ['history'] });
     await render();
   });
+
+  void showPendingModals(state, rewards);
 
 }
 

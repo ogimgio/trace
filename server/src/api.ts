@@ -173,8 +173,7 @@ export function createApp(sql: Sql, { rateLimits = DEFAULT_RATE_LIMITS, ipSalt =
     });
   });
 
-  app.post(['/api/devices/:id/link-challenge', '/api/link/:code', '/api/link/:code/worldid/start', '/api/link/:code/worldid'],
-    limiter.middleware('links'));
+  app.post(['/api/devices/:id/link-challenge', '/api/link/:code', '/api/devices/:id/claim'], limiter.middleware('links'));
   app.use(createRewardsRouter(sql, rewards));
 
   return app;

@@ -2,18 +2,18 @@ import { Router } from 'express';
 import type { Sql } from '../db.ts';
 import { explorerTxUrl, formatUnits, parseWalletAddress, type Rewarder } from '../solana/rewards.ts';
 import {
-  LIVE_WINDOW_MS, MAX_PAGES, MAX_TOKENS_PER_POINT, MIN_VISITS_PER_ACTIVE_DAY, POINTS_PER_ACTIVE_DAY, WELCOME_BONUS,
-  SETTLEMENT_GRACE_MS, WELCOME_INSTALLMENT, WELCOME_MIN_ACTIVE_DAYS, epochAt, epochBudget, epochRange,
+  DEVICE_WINDOW_MS, HISTORY_DAYS, MAX_EXTENSIONS_PER_DEVICE, MAX_PAGES_PER_DAY, MIN_VISITS_PER_ACTIVE_DAY,
+  POINTS_PER_ACTIVE_DAY, TOKENS_PER_POINT, WELCOME_BONUS, WELCOME_INSTALLMENT, WELCOME_MIN_ACTIVE_DAYS, DAY_MS, epochRange,
 } from './policy.ts';
 import { purgeExpiredVisits } from '../retention.ts';
 import { purgeRateLimits } from '../ratelimit.ts';
-import { scoreVisits } from './points.ts';
-import { countableVisits, readyEpochs, sendPayouts, settleEpoch, type PayoutRow } from './settle.ts';
+import { readyEpochs, sendPayouts, settleEpoch, type PayoutRow } from './settle.ts';
+import { claimOffer, computeOffer, type Offer } from './claims.ts';
 import {
   challengeMessage, consumeChallenge, createChallenge, getChallenge, verifyWalletSignature,
   type LinkAction,
 } from './link.ts';
-import type { WorldId } from '../worldid.ts';
+import type { DeviceCheck, DeviceSignals } from '../fingerprint.ts';
 
 export interface RewardsOptions {
   // Without a rewarder (e.g. in tests, or token not configured) payouts stay 'pending' and `rewards:settle` sends them.
@@ -23,20 +23,25 @@ export interface RewardsOptions {
   now?: () => number;
   // Protects /api/cron/daily: Vercel Cron sends "Authorization: Bearer <CRON_SECRET>".
   cronSecret?: string;
-  // World ID (Orb) verification, required to link a wallet. Without it linking is refused (fail closed).
-  worldId?: WorldId;
+  // Device check (Fingerprint), required to link a wallet: one device, one wallet. Without it linking is
+  // refused (fail closed).
+  deviceCheck?: DeviceCheck;
+  // Extension installs a device may link per 30 days (policy.ts); false disables the limit (local development).
+  maxExtensionsPerDevice?: number | false;
 }
 
 type Device = { id: string; wallet_address: string | null };
 
 export function createRewardsRouter(
-  sql: Sql, { rewarder, decimals = 6, symbol = 'TRACE', now = Date.now, cronSecret, worldId }: RewardsOptions = {},
+  sql: Sql, { rewarder, decimals = 6, symbol = 'TRACE', now = Date.now, cronSecret, deviceCheck,
+    maxExtensionsPerDevice = MAX_EXTENSIONS_PER_DEVICE }: RewardsOptions = {},
 ) {
   const router = Router();
 
   const getDevice = async (id: string) => (await sql<Device[]>`SELECT id, wallet_address FROM devices WHERE id = ${id}`)[0];
-  const isVerified = async (wallet: string | null) =>
-    wallet !== null && (await sql`SELECT 1 FROM worldid_verifications WHERE wallet = ${wallet}`).length > 0;
+  // Only wallets linked through a device check are paid (wallets linked before it existed must link again).
+  const isDeviceChecked = async (wallet: string | null) =>
+    wallet !== null && (await sql`SELECT 1 FROM device_fingerprints WHERE wallet = ${wallet}`).length > 0;
   // Every change is also logged in wallet_links, so the full wallet ↔ device history survives a wallet swap.
   const setWallet = (id: string, action: LinkAction, wallet: string) => sql.begin(async (tx) => {
     await tx`UPDATE devices SET wallet_address = ${action === 'link' ? wallet : null} WHERE id = ${id}`;
@@ -51,6 +56,20 @@ export function createRewardsRouter(
 
   const tokens = (units: bigint) => formatUnits(units, decimals);
 
+  const offerJson = (o: Offer) => ({
+    points: o.points,
+    amount: tokens(o.amount),
+    visits: o.visits,
+    pages: o.pages,
+    days: o.days.length,
+    activeDays: o.activeDays,
+    firstDay: o.days.length ? o.days[0].day * DAY_MS : null,
+    lastDay: o.days.length ? o.days[o.days.length - 1].day * DAY_MS : null,
+    duplicateVisits: o.duplicateVisits,
+    paidDays: o.paidDays,
+    copied: o.copiedFrom !== null,
+  });
+
   const payoutJson = (p: PayoutRow) => ({
     epoch: p.epoch,
     weekStartsAt: epochRange(p.epoch).startsAt,
@@ -63,7 +82,7 @@ export function createRewardsRouter(
   // --- Wallet linking via signature (see link.ts) ---
 
   // The extension requests a code to link a wallet ('link') or unlink the current one ('unlink').
-  // 'link' is also how a wallet linked before World ID was required gets verified (same wallet).
+  // 'link' is also how a wallet linked before the device check existed passes it (same wallet).
   router.post('/api/devices/:id/link-challenge', async (req, res) => {
     const action: LinkAction = req.body?.action === 'unlink' ? 'unlink' : 'link';
     const device = await getDevice(req.params.id);
@@ -71,7 +90,7 @@ export function createRewardsRouter(
       res.status(404).json({ error: 'device not found' });
       return;
     }
-    if (action === 'link' && device.wallet_address && (await isVerified(device.wallet_address))) {
+    if (action === 'link' && device.wallet_address && (await isDeviceChecked(device.wallet_address))) {
       res.status(409).json({ error: 'a wallet is already linked: unlink it first' });
       return;
     }
@@ -96,55 +115,14 @@ export function createRewardsRouter(
       action: challenge.action,
       deviceId: challenge.device_id,
       wallet: challenge.wallet,
-      // Linking a wallet that is not yet verified: the device's current wallet must be the one verified.
+      // Linking a wallet that has not passed the device check yet: it must be the device's current wallet.
       currentWallet: challenge.action === 'link' ? device?.wallet_address ?? null : null,
       expiresAt: challenge.expires_at,
       status,
-      worldIdVerified: challenge.worldid_nullifier !== null,
+      // Fingerprint agent parameters for the device check (public key, not secret).
+      deviceCheck: challenge.action === 'link' ? deviceCheck?.browser ?? null : null,
       message: challengeMessage(challenge),
     });
-  });
-
-  // --- World ID (see worldid.ts): required before a wallet can be linked ---
-
-  // Signed request parameters for IDKit. The proof will commit to the link code (signal).
-  router.post('/api/link/:code/worldid/start', async (req, res) => {
-    const challenge = await getChallenge(sql, req.params.code);
-    if (!challenge || challenge.action !== 'link' || challenge.used_at || challenge.expires_at <= now()) {
-      res.status(410).json({ error: 'code already used or expired: start again from the extension' });
-      return;
-    }
-    if (!worldId) {
-      res.status(503).json({ error: 'World ID verification is not configured on this server' });
-      return;
-    }
-    const request = worldId.start(challenge.code);
-    await sql`UPDATE wallet_challenges SET worldid_nonce = ${request.rpContext.nonce} WHERE code = ${challenge.code}`;
-    res.json(request);
-  });
-
-  // The IDKit result. If valid, the anonymous nullifier is attached to the link code until the wallet signs.
-  router.post('/api/link/:code/worldid', async (req, res) => {
-    const challenge = await getChallenge(sql, req.params.code);
-    if (!challenge || challenge.action !== 'link' || challenge.used_at || challenge.expires_at <= now() || !challenge.worldid_nonce) {
-      res.status(410).json({ error: 'code already used or expired: start again from the extension' });
-      return;
-    }
-    if (!worldId) {
-      res.status(503).json({ error: 'World ID verification is not configured on this server' });
-      return;
-    }
-    const verdict = await worldId.verify(req.body, { signal: challenge.code, nonce: challenge.worldid_nonce });
-    if (!verdict.ok) {
-      res.status(400).json({ error: verdict.error });
-      return;
-    }
-    await sql`UPDATE wallet_challenges SET worldid_nullifier = ${verdict.nullifier} WHERE code = ${challenge.code}`;
-    // A human who already verified can only link that same wallet again: say which one before Phantom opens.
-    const [bound] = await sql<{ wallet: string }[]>`
-      SELECT wallet FROM worldid_verifications WHERE action = ${worldId.action} AND nullifier = ${verdict.nullifier}
-    `;
-    res.json({ verified: true, boundWallet: bound?.wallet ?? null });
   });
 
   // The /link page posts the signature. If valid, links or unlinks. The welcome bonus is no longer sent here:
@@ -173,58 +151,127 @@ export function createRewardsRouter(
       res.status(410).json({ error: 'code already used or expired: start again from the extension' });
       return;
     }
-    // Linking requires a unique human: checked before the code is consumed, so the user can still fix it.
+    // Linking requires a device check: one device, one wallet. Checked before the code is consumed,
+    // so the user can still fix things and retry.
+    let device: { visitorId: string; signals: DeviceSignals } | null = null;
     if (challenge.action === 'link') {
-      if (!worldId) {
-        res.status(503).json({ error: 'World ID verification is not configured on this server' });
+      if (!deviceCheck) {
+        res.status(503).json({ error: 'the device check is not configured on this server' });
         return;
       }
-      if (challenge.worldid_nullifier === null) {
-        res.status(403).json({ error: 'verify with World ID first' });
+      const eventId = req.body?.deviceEventId;
+      if (typeof eventId !== 'string' || eventId === '') {
+        res.status(400).json({ error: 'device check missing: reload the page and try again' });
         return;
       }
-      const conflict = await worldIdConflict(sql, worldId.action, challenge.worldid_nullifier, wallet.toBase58());
+      const verdict = await deviceCheck.check(eventId, now());
+      if (!verdict.ok) {
+        res.status(403).json({ error: verdict.error });
+        return;
+      }
+      const fresh = await sql`INSERT INTO fingerprint_events (event_id, used_at) VALUES (${eventId}, ${now()}) ON CONFLICT DO NOTHING`;
+      if (fresh.count === 0) {
+        res.status(409).json({ error: 'device check already used: reload the page and try again' });
+        return;
+      }
+      const conflict = await deviceConflict(sql, verdict.visitorId, wallet.toBase58());
       if (conflict) {
+        // Logged: a device that keeps trying other wallets gets its own wallet's payouts reviewed (risk.ts).
+        await sql`
+          INSERT INTO device_link_rejections (visitor_id, wallet, created_at)
+          VALUES (${verdict.visitorId}, ${wallet.toBase58()}, ${now()})
+        `;
         res.status(409).json({ error: conflict });
         return;
       }
+      // Reinstalling the extension starts a fresh history: a few installs per device per month.
+      if (maxExtensionsPerDevice !== false) {
+        const [installs] = await sql<{ n: number }[]>`
+          SELECT COUNT(*)::int AS n FROM device_extensions
+          WHERE visitor_id = ${verdict.visitorId} AND device_id <> ${challenge.device_id} AND linked_at >= ${now() - DEVICE_WINDOW_MS}
+        `;
+        if (installs.n >= maxExtensionsPerDevice) {
+          res.status(429).json({ error: `this device already linked ${installs.n} extension installs in the last 30 days: try again later` });
+          return;
+        }
+      }
+      device = verdict;
     }
     if (!(await consumeChallenge(sql, challenge.code, now()))) {
       res.status(410).json({ error: 'code already used or expired: start again from the extension' });
       return;
     }
 
-    const device = await getDevice(challenge.device_id);
-    if (!device) {
+    const extension = await getDevice(challenge.device_id);
+    if (!extension) {
       res.status(404).json({ error: 'device not found' });
       return;
     }
 
     if (challenge.action === 'unlink') {
-      if (device.wallet_address !== challenge.wallet) {
+      if (extension.wallet_address !== challenge.wallet) {
         res.status(409).json({ error: 'the linked wallet has changed in the meantime' });
         return;
       }
-      await setWallet(device.id, 'unlink', wallet.toBase58());
+      await setWallet(extension.id, 'unlink', wallet.toBase58());
       res.json({ action: 'unlink', wallet: null, welcome: null });
       return;
     }
 
-    if (device.wallet_address && device.wallet_address !== wallet.toBase58()) {
+    if (extension.wallet_address && extension.wallet_address !== wallet.toBase58()) {
       res.status(409).json({ error: 'a wallet is already linked: unlink it first' });
       return;
     }
-    // One human, one wallet: the unique constraints decide if two requests race (see bindWorldId).
-    const conflict = await bindWorldId(sql, worldId!.action, challenge.worldid_nullifier!, wallet.toBase58(), now());
+    // One device, one wallet: the primary key decides if two requests race (see bindDevice).
+    const conflict = await bindDevice(sql, device!.visitorId, wallet.toBase58(), device!.signals, now());
     if (conflict) {
       res.status(409).json({ error: conflict });
       return;
     }
-    if (device.wallet_address !== wallet.toBase58()) await setWallet(device.id, 'link', wallet.toBase58());
-    res.json({ action: 'link', wallet: wallet.toBase58(), verified: true, welcome: welcomeRules });
+    await sql`
+      INSERT INTO device_extensions (visitor_id, device_id, linked_at) VALUES (${device!.visitorId}, ${extension.id}, ${now()})
+      ON CONFLICT DO NOTHING
+    `;
+    if (extension.wallet_address !== wallet.toBase58()) await setWallet(extension.id, 'link', wallet.toBase58());
+    res.json({ action: 'link', wallet: wallet.toBase58(), deviceChecked: true, welcome: welcomeRules });
   });
 
   // The page where Phantom signs is public/link.html (Phantom does not work in extension pages).
+
+  // What the shared data is worth right now: shown to the user before they claim it.
+  router.get('/api/devices/:id/offer', async (req, res) => {
+    const device = await getDevice(req.params.id);
+    if (!device) {
+      res.status(404).json({ error: 'device not found' });
+      return;
+    }
+    const offer = await computeOffer(sql, device.id, device.wallet_address, now(), decimals);
+    res.json({ symbol, wallet: device.wallet_address, deviceChecked: await isDeviceChecked(device.wallet_address), ...offerJson(offer) });
+  });
+
+  // The user confirms the offer: the days are recorded as paid and the payout is sent right away
+  // (or held for review when the wallet's devices look risky).
+  router.post('/api/devices/:id/claim', async (req, res) => {
+    const device = await getDevice(req.params.id);
+    if (!device) {
+      res.status(404).json({ error: 'device not found' });
+      return;
+    }
+    if (!device.wallet_address || !(await isDeviceChecked(device.wallet_address))) {
+      res.status(403).json({ error: 'link your wallet first' });
+      return;
+    }
+    const { offer, payout } = await claimOffer(sql, device.id, device.wallet_address, now(), decimals);
+    if (!payout) {
+      res.status(409).json({
+        error: offer.copiedFrom ? 'this history copies another device: it cannot be rewarded' : 'nothing new to claim',
+        offer: offerJson(offer),
+      });
+      return;
+    }
+    const final = payout.status === 'pending' && rewarder ? (await sendPayouts(sql, rewarder, { ids: [payout.id] }))[0] ?? payout : payout;
+    res.json({ payout: payoutJson(final), points: payout.points, symbol });
+  });
 
   router.get('/api/devices/:id/rewards', async (req, res) => {
     const device = await getDevice(req.params.id);
@@ -232,39 +279,27 @@ export function createRewardsRouter(
       res.status(404).json({ error: 'device not found' });
       return;
     }
-
-    const epoch = epochAt(now());
-    const { startsAt, endsAt } = epochRange(epoch);
-    const score = scoreVisits(await countableVisits(sql, device.id, startsAt, endsAt));
-    const payouts = await sql<PayoutRow[]>`SELECT * FROM reward_payouts WHERE device_id = ${device.id} ORDER BY epoch DESC, id DESC`;
+    const payouts = await sql<PayoutRow[]>`SELECT * FROM reward_payouts WHERE device_id = ${device.id} ORDER BY id DESC`;
     const received = payouts.filter((p) => p.status === 'sent').reduce((a, p) => a + BigInt(p.amount), 0n);
+    const offer = await computeOffer(sql, device.id, device.wallet_address, now(), decimals);
 
     res.json({
       symbol,
       wallet: device.wallet_address,
-      // Only wallets verified with World ID are paid.
-      verified: await isVerified(device.wallet_address),
+      // false for a wallet linked before the device check existed: it earns nothing until it links again.
+      deviceChecked: await isDeviceChecked(device.wallet_address),
       totalReceived: tokens(received),
-      // Current week estimate: points are final, the amount depends on how many points others earn.
-      currentWeek: {
-        epoch,
-        startsAt,
-        endsAt,
-        payableFrom: endsAt + SETTLEMENT_GRACE_MS,
-        ...score,
-        maxReward: tokens(BigInt(score.points) * MAX_TOKENS_PER_POINT * 10n ** BigInt(decimals)),
-        weeklyBudget: tokens(epochBudget(epoch, decimals)),
-      },
+      offer: offerJson(offer),
       payouts: payouts.map(payoutJson),
       rules: {
-        maxPages: MAX_PAGES,
+        maxPagesPerDay: MAX_PAGES_PER_DAY,
         pointsPerActiveDay: POINTS_PER_ACTIVE_DAY,
         minVisitsPerActiveDay: MIN_VISITS_PER_ACTIVE_DAY,
-        maxTokensPerPoint: MAX_TOKENS_PER_POINT.toString(),
+        tokensPerPoint: TOKENS_PER_POINT.toString(),
+        historyDays: HISTORY_DAYS,
         welcomeBonus: WELCOME_BONUS.toString(),
         welcomeInstallment: WELCOME_INSTALLMENT.toString(),
         welcomeMinActiveDays: WELCOME_MIN_ACTIVE_DAYS,
-        liveWindowHours: LIVE_WINDOW_MS / 3_600_000,
       },
     });
   });
@@ -278,7 +313,7 @@ export function createRewardsRouter(
     const settled = [];
     for (const epoch of await readyEpochs(sql, now())) {
       const plan = await settleEpoch(sql, epoch, decimals, now());
-      settled.push({ epoch, payouts: plan.payouts.length, totalPoints: plan.totalPoints });
+      settled.push({ epoch, payouts: plan.payouts.length });
     }
     const sent = rewarder ? await sendPayouts(sql, rewarder) : [];
     const purgedVisits = await purgeExpiredVisits(sql, now());
@@ -289,28 +324,25 @@ export function createRewardsRouter(
   return router;
 }
 
-// Why this human (nullifier) and this wallet cannot be bound together, or null if they can:
-// each human has one wallet and each wallet one human, forever.
-async function worldIdConflict(sql: Sql, action: string, nullifier: string, wallet: string): Promise<string | null> {
-  const rows = await sql<{ nullifier: string; wallet: string }[]>`
-    SELECT nullifier, wallet FROM worldid_verifications WHERE (action = ${action} AND nullifier = ${nullifier}) OR wallet = ${wallet}
-  `;
-  for (const row of rows) {
-    if (row.nullifier === nullifier && row.wallet !== wallet) {
-      return `this World ID is already linked to wallet ${row.wallet}: one person can link one wallet only`;
-    }
-    if (row.wallet === wallet && row.nullifier !== nullifier) return 'this wallet was verified by another person';
-  }
-  return null;
+// Why this device (Fingerprint visitor ID) cannot link this wallet, or null if it can:
+// a device belongs to the first wallet linked from it; a wallet may use several devices.
+async function deviceConflict(sql: Sql, visitorId: string, wallet: string): Promise<string | null> {
+  const [row] = await sql<{ wallet: string }[]>`SELECT wallet FROM device_fingerprints WHERE visitor_id = ${visitorId}`;
+  return row && row.wallet !== wallet
+    ? `this device is already linked to wallet ${row.wallet}: one device can link one wallet only`
+    : null;
 }
 
-// Stores the binding. The primary key (action, nullifier) and UNIQUE (wallet) make it atomic:
-// if a parallel request bound either side first, the insert does nothing and the conflict is reported.
-async function bindWorldId(sql: Sql, action: string, nullifier: string, wallet: string, now: number): Promise<string | null> {
+// Stores the device ↔ wallet binding (refreshing the signals of a known device). The primary key on the
+// visitor ID makes it atomic: if another wallet bound this device first, the conflict is reported.
+async function bindDevice(sql: Sql, visitorId: string, wallet: string, signals: DeviceSignals, now: number): Promise<string | null> {
   await sql`
-    INSERT INTO worldid_verifications (action, nullifier, wallet, verified_at)
-    VALUES (${action}, ${nullifier}, ${wallet}, ${now})
-    ON CONFLICT DO NOTHING
+    INSERT INTO device_fingerprints (visitor_id, wallet, first_seen_at, last_seen_at, suspect_score, vpn, incognito, cluster_key)
+    VALUES (${visitorId}, ${wallet}, ${now}, ${now}, ${signals.suspectScore}, ${signals.vpn}, ${signals.incognito}, ${signals.clusterKey})
+    ON CONFLICT (visitor_id) DO UPDATE SET
+      last_seen_at = EXCLUDED.last_seen_at, suspect_score = EXCLUDED.suspect_score,
+      vpn = EXCLUDED.vpn, incognito = EXCLUDED.incognito, cluster_key = EXCLUDED.cluster_key
+    WHERE device_fingerprints.wallet = EXCLUDED.wallet
   `;
-  return worldIdConflict(sql, action, nullifier, wallet);
+  return deviceConflict(sql, visitorId, wallet);
 }

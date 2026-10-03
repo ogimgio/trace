@@ -32,10 +32,10 @@ const sql = connect(databaseUrl(), { max: 1 });
 
 function print(plan: EpochPlan) {
   const { startsAt, endsAt } = epochRange(plan.epoch);
-  console.log(`\nWeek ${plan.epoch} (${day(startsAt)} → ${day(endsAt - 1)}): budget ${fmt(plan.budget)}, ${plan.totalPoints} total points`);
-  if (plan.payouts.length === 0) console.log('  no devices with a wallet and activity');
+  console.log(`\nWeek ${plan.epoch} (${day(startsAt)} → ${day(endsAt - 1)}): welcome bonus installments`);
+  if (plan.payouts.length === 0) console.log('  no wallet active enough this week');
   for (const p of plan.payouts) {
-    console.log(`  ${p.kind.padEnd(7)} ${p.deviceId.slice(0, 8)}… → ${p.wallet.slice(0, 8)}…  ${String(p.points).padStart(5)} points  ${fmt(p.amount)}`);
+    console.log(`  ${p.kind.padEnd(7)} ${p.deviceId.slice(0, 8)}… → ${p.wallet.slice(0, 8)}…  ${String(p.points).padStart(5)} points  ${fmt(p.amount)}${p.holdReason ? `  HELD for review: ${p.holdReason}` : ''}`);
   }
   for (const [copy, original] of plan.nearDuplicateOf) {
     console.log(`  ⚠ ${copy.slice(0, 8)}… copies the history of ${original.slice(0, 8)}…: excluded this week`);

@@ -2,27 +2,29 @@ import { PublicKey, SendTransactionError } from '@solana/web3.js';
 import type { Sql } from '../db.ts';
 import type { Rewarder } from '../solana/rewards.ts';
 import {
-  CLOCK_SKEW_MS, LIVE_WINDOW_MS, MAX_TOKENS_PER_POINT, WELCOME_BONUS, WELCOME_INSTALLMENT, WELCOME_MIN_ACTIVE_DAYS,
-  epochAt, epochBudget, epochRange, isSettleable, toUnits,
+  WELCOME_BONUS, WELCOME_INSTALLMENT, WELCOME_MIN_ACTIVE_DAYS, epochAt, epochRange, isSettleable, toUnits,
 } from './policy.ts';
-import { scoreVisits, type ScoredVisit } from './points.ts';
+import { scoreVisits } from './points.ts';
 import { checkVisits, type WeekVisit } from './eligibility.ts';
+import { walletsUnderReview } from './risk.ts';
 
+// Weekly settlement. Shared data is paid when the user claims it (claims.ts); what remains weekly is the
+// welcome bonus, paid in installments to wallets that keep browsing.
+//
 // All guarantees against double payouts live in the database (unique constraints and conditional UPDATEs),
 // because in production several server instances run in parallel.
 
 export interface PlannedPayout {
   deviceId: string;
   wallet: string;
-  kind: 'weekly' | 'welcome';
+  kind: 'welcome';
   points: number;
   amount: bigint;
+  holdReason: string | null; // set: created 'held', waiting for manual review instead of being sent
 }
 
 export interface EpochPlan {
   epoch: number;
-  budget: bigint;
-  totalPoints: number;
   payouts: PlannedPayout[];
   exactDuplicates: Map<string, number>; // per device: visits dropped as copies of another device's
   nearDuplicateOf: Map<string, string>; // copy device → original: the copy earns nothing this week
@@ -33,24 +35,13 @@ export interface PayoutRow {
   epoch: number;
   device_id: string;
   wallet: string;
-  kind: 'weekly' | 'welcome';
+  kind: 'weekly' | 'welcome' | 'claim'; // 'weekly': paid by the old weekly budget, before claims existed
   points: number;
   amount: string; // base units (numeric)
-  status: 'pending' | 'sending' | 'sent' | 'failed';
+  status: 'pending' | 'sending' | 'sent' | 'failed' | 'held' | 'rejected';
+  hold_reason: string | null;
   signature: string | null;
   error: string | null;
-}
-
-// Splits the budget in proportion to points, with a per-point cap. Rounds down:
-// the sum never exceeds the budget, leftover dust stays in the pool.
-export function distribute(budget: bigint, points: number[], maxPerPoint: bigint): bigint[] {
-  const total = BigInt(points.reduce((a, b) => a + b, 0));
-  if (total === 0n) return points.map(() => 0n);
-  return points.map((p) => {
-    const share = (budget * BigInt(p)) / total;
-    const cap = BigInt(p) * maxPerPoint;
-    return share < cap ? share : cap;
-  });
 }
 
 // All visits of the week, from every device: duplicates are found by comparing devices with each other.
@@ -59,32 +50,24 @@ const weekVisits = (sql: Sql, from: number, to: number) => sql<WeekVisit[]>`
   WHERE visit_time >= ${from} AND visit_time < ${to}
 `;
 
-// Computes who gets what for an epoch, without writing anything. Only devices whose wallet is verified with
-// World ID are paid, but every device takes part in the duplicate check.
-export async function planEpoch(sql: Sql, epoch: number, decimals: number): Promise<EpochPlan> {
+// Computes the welcome installments of an epoch, without writing anything. Only wallets linked through a
+// Fingerprint device check are paid, and only live, non-duplicated activity counts (eligibility.ts).
+export async function planEpoch(sql: Sql, epoch: number, decimals: number, now = Date.now()): Promise<EpochPlan> {
   const { startsAt, endsAt } = epochRange(epoch);
-  const devices = await sql<{ id: string; wallet_address: string | null; created_at: number; verified: boolean }[]>`
-    SELECT d.id, d.wallet_address, d.created_at, EXISTS (SELECT 1 FROM worldid_verifications w WHERE w.wallet = d.wallet_address) AS verified
+  const devices = await sql<{ id: string; wallet_address: string | null; created_at: number; device_checked: boolean }[]>`
+    SELECT d.id, d.wallet_address, d.created_at,
+      EXISTS (SELECT 1 FROM device_fingerprints f WHERE f.wallet = d.wallet_address) AS device_checked
     FROM devices d ORDER BY d.id
   `;
   const check = checkVisits(await weekVisits(sql, startsAt, endsAt), new Map(devices.map((d) => [d.id, d.created_at])));
 
   const scored = [];
   for (const device of devices) {
-    if (!device.wallet_address || !device.verified) continue;
+    if (!device.wallet_address || !device.device_checked) continue;
     const score = scoreVisits(check.visits.get(device.id) ?? []);
     if (score.points > 0) scored.push({ device: { ...device, wallet_address: device.wallet_address }, score });
   }
-
-  const budget = epochBudget(epoch, decimals);
-  const amounts = distribute(budget, scored.map((s) => s.score.points), toUnits(MAX_TOKENS_PER_POINT, decimals));
-  const payouts: PlannedPayout[] = scored.map((s, i) => ({
-    deviceId: s.device.id,
-    wallet: s.device.wallet_address,
-    kind: 'weekly',
-    points: s.score.points,
-    amount: amounts[i],
-  }));
+  const payouts: PlannedPayout[] = [];
 
   // Welcome bonus installments: active this week, and the device and the wallet are both still under the total.
   const installment = toUnits(WELCOME_INSTALLMENT, decimals);
@@ -97,13 +80,15 @@ export async function planEpoch(sql: Sql, epoch: number, decimals: number): Prom
     if ((paid.byDevice.get(device.id) ?? 0n) + installment > total) continue;
     if ((paid.byWallet.get(wallet) ?? 0n) + installment > total) continue;
     walletsThisWeek.add(wallet);
-    payouts.push({ deviceId: device.id, wallet, kind: 'welcome', points: 0, amount: installment });
+    payouts.push({ deviceId: device.id, wallet, kind: 'welcome', points: 0, amount: installment, holdReason: null });
   }
+
+  // Risky devices: the wallet's payouts wait for manual review (see risk.ts).
+  const review = await walletsUnderReview(sql, now);
+  for (const p of payouts) p.holdReason = review.get(p.wallet) ?? null;
 
   return {
     epoch,
-    budget,
-    totalPoints: scored.reduce((a, s) => a + s.score.points, 0),
     payouts,
     exactDuplicates: check.exactDuplicates,
     nearDuplicateOf: check.nearDuplicateOf,
@@ -124,51 +109,36 @@ async function welcomePaid(sql: Sql) {
   return { byDevice, byWallet };
 }
 
-// Visits of one device that would count right now: the estimate shown in the extension. It applies the live
-// window and drops exact copies of another device's visits; near duplicates are only detected at settlement.
-export function countableVisits(sql: Sql, deviceId: string, from: number, to: number) {
-  return sql<ScoredVisit[]>`
-    SELECT v.url, v.visit_time AS "visitTime" FROM visits v
-    WHERE v.device_id = ${deviceId} AND v.visit_time >= ${from} AND v.visit_time < ${to}
-      AND v.received_at - v.visit_time <= ${LIVE_WINDOW_MS} AND v.visit_time - v.received_at <= ${CLOCK_SKEW_MS}
-      AND NOT EXISTS (
-        SELECT 1 FROM visits o
-        WHERE o.visit_time = v.visit_time AND o.url = v.url AND o.device_id <> v.device_id
-          AND o.received_at - o.visit_time <= ${LIVE_WINDOW_MS} AND o.visit_time - o.received_at <= ${CLOCK_SKEW_MS}
-          AND (o.received_at < v.received_at OR (o.received_at = v.received_at AND o.device_id < v.device_id))
-      )
-  `;
-}
-
 export async function isSettled(sql: Sql, epoch: number): Promise<boolean> {
   const [row] = await sql`SELECT 1 FROM reward_epochs WHERE epoch = ${epoch}`;
   return row !== undefined;
 }
 
-// Settles an epoch: stores payouts as 'pending'. A settled epoch is never recomputed,
-// so visits arriving later no longer count for that week.
+// Settles an epoch: stores its welcome installments ('pending', or 'held' for review). A settled epoch is
+// never recomputed, so visits arriving later no longer count for that week.
 export async function settleEpoch(
   sql: Sql, epoch: number, decimals: number, now = Date.now(), { ignoreGrace = false } = {},
 ): Promise<EpochPlan> {
   if (!isSettleable(epoch, now, { ignoreGrace })) throw new Error(`epoch ${epoch} cannot be settled yet`);
   if (await isSettled(sql, epoch)) throw new Error(`epoch ${epoch} is already settled`);
 
-  const plan = await planEpoch(sql, epoch, decimals);
-  const weekly = plan.payouts.filter((p) => p.kind === 'weekly').reduce((a, p) => a + p.amount, 0n);
+  const plan = await planEpoch(sql, epoch, decimals, now);
+  const distributed = plan.payouts.reduce((a, p) => a + p.amount, 0n);
 
   await sql.begin(async (tx) => {
     // The primary key on epoch prevents two parallel settlements from both writing.
     const inserted = await tx`
       INSERT INTO reward_epochs (epoch, budget, total_points, distributed, settled_at)
-      VALUES (${epoch}, ${plan.budget.toString()}, ${plan.totalPoints}, ${weekly.toString()}, ${now})
+      VALUES (${epoch}, 0, 0, ${distributed.toString()}, ${now})
       ON CONFLICT DO NOTHING
     `;
     if (inserted.count === 0) throw new Error(`epoch ${epoch} is already settled`);
     for (const p of plan.payouts) {
       if (p.amount <= 0n) continue;
       await tx`
-        INSERT INTO reward_payouts (epoch, device_id, wallet, kind, points, amount, status, created_at)
-        VALUES (${epoch}, ${p.deviceId}, ${p.wallet}, ${p.kind}, ${p.points}, ${p.amount.toString()}, 'pending', ${now})
+        INSERT INTO reward_payouts (epoch, device_id, wallet, kind, points, amount, status, hold_reason, created_at)
+        VALUES (${epoch}, ${p.deviceId}, ${p.wallet}, ${p.kind}, ${p.points}, ${p.amount.toString()},
+          ${p.holdReason ? 'held' : 'pending'}, ${p.holdReason}, ${now})
         ON CONFLICT DO NOTHING
       `;
     }

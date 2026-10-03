@@ -26,7 +26,6 @@
     header h1 { margin: 0; font-size: 20px; letter-spacing: 0.12em; }
     h2 { margin: 0 0 8px; font-size: 17px; }
     p { margin: 0 0 12px; }
-    .qr img { display: block; margin: 8px auto; background: #fff; border-radius: 8px; image-rendering: pixelated; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
     pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: var(--muted); }
     button { width: 100%; padding: 11px 12px; border: 0; border-radius: 8px; background: var(--accent);
@@ -38,6 +37,13 @@
     .error { color: var(--error); }
     .ok { color: var(--ok); }
     #msg:empty { display: none; }
+    .success { text-align: center; padding: 28px 20px; border: 1px solid var(--border); border-radius: 14px;
+               background: var(--card); animation: pop 0.3s ease-out; }
+    .success .check { width: 72px; height: 72px; margin: 0 auto 12px; border-radius: 50%; display: grid; place-items: center;
+                      font-size: 36px; font-weight: 700; color: var(--ok); background: color-mix(in srgb, var(--ok) 18%, transparent); }
+    .success h2 { font-size: 22px; }
+    @keyframes pop { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .success { animation: none; } }
   </style>
 </head>
 <body>
@@ -46,13 +52,17 @@
     <div id="app"><p class="muted">Loading…</p></div>
     <p id="msg"></p>
   </main>
-  <!-- World ID (IDKit, loads its WASM from the same folder) and a QR code generator -->
-  <script src="https://cdn.jsdelivr.net/npm/@worldcoin/idkit-core@4.3.0/dist/idkit.global.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
   <script type="module">
     const app = document.getElementById('app');
     const msg = document.getElementById('msg');
-    const code = new URLSearchParams(location.search).get('code') ?? '';
+    const params = new URLSearchParams(location.search);
+    const code = params.get('code') ?? '';
+    // Set when the extension opened this page in a popup window: tell it when we are done, it closes the window.
+    const extensionId = params.get('ext');
+    const notifyExtension = (type) => {
+      try { if (extensionId && window.chrome?.runtime?.sendMessage) chrome.runtime.sendMessage(extensionId, { type }); } catch {}
+    };
+    const closeHint = extensionId ? 'This window closes by itself.' : 'You can close this tab.';
 
     const show = (text, cls = 'error') => { msg.className = cls; msg.textContent = text; };
     const el = (tag, props = {}, ...children) => {
@@ -79,94 +89,33 @@
         app.replaceChildren(el('div', { className: 'card' }, el('p', { textContent: `${text} Start again from the TRACE extension.` })));
         return;
       }
-      // Linking needs World ID first (one human, one wallet); unlinking only the wallet's signature.
-      if (challenge.action === 'link' && !challenge.worldIdVerified) verifyHuman(challenge);
-      else sign(challenge, challenge.currentWallet);
+      sign(challenge);
     }
 
-    // Step 1: prove with World ID (Orb) that a unique human is behind this link.
-    function verifyHuman(challenge) {
-      const button = el('button', { textContent: 'Verify with World ID' });
-      const qr = el('div', { className: 'qr' });
-      app.replaceChildren(
-        el('div', { className: 'card' },
-          el('p', { className: 'muted', textContent: 'Step 1 of 2' }),
-          el('h2', { textContent: 'Prove you are a unique human' }),
-          el('p', { textContent: 'TRACE rewards real people, one wallet each. Verify with World ID: you need World App and an Orb-verified World ID.' }),
-          el('p', { className: 'muted', textContent: 'We only receive an anonymous code that is the same each time you verify with TRACE. No name, no photo, no iris data, nothing that identifies you. It is used only to stop duplicate accounts and is never shared.' }),
-          qr,
-        ),
-        button,
-      );
-
-      button.addEventListener('click', async () => {
-        if (!window.IDKit || !window.qrcode) {
-          show('World ID could not be loaded. Check your connection and reload the page.');
-          return;
-        }
-        button.disabled = true;
-        show('');
-        try {
-          const start = await fetch(`/api/link/${encodeURIComponent(code)}/worldid/start`, { method: 'POST' });
-          const params = await start.json();
-          if (!start.ok) throw new Error(params.error ?? `Error ${start.status}`);
-
-          const request = await IDKit.request({
-            app_id: params.appId,
-            action: params.action,
-            rp_context: params.rpContext,
-            environment: params.environment,
-            // World ID 4.0 only: legacy proofs have different nullifiers, so one human could count twice.
-            allow_legacy_proofs: false,
-          }).preset(IDKit.proofOfHuman({ signal: params.signal }));
-
-          const image = qrcode(0, 'M');
-          image.addData(request.connectorURI);
-          image.make();
-          qr.replaceChildren(
-            el('p', { textContent: 'Scan with your phone camera or World App:' }),
-            el('img', { src: image.createDataURL(5, 2), alt: 'World ID QR code' }),
-            el('p', {}, el('a', { href: request.connectorURI, target: '_blank', rel: 'noopener', textContent: 'On your phone? Open World App ↗' })),
-          );
-          show('Waiting for World App…', 'muted');
-
-          const completion = await request.pollUntilCompletion();
-          if (!completion.success) {
-            throw new Error(completion.error === 'credential_unavailable'
-              ? 'An Orb-verified World ID is required. Find an Orb in World App, then try again.'
-              : `World ID: ${completion.error}`);
-          }
-          const verify = await fetch(`/api/link/${encodeURIComponent(code)}/worldid`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(completion.result),
-          });
-          const body = await verify.json();
-          if (!verify.ok) throw new Error(body.error ?? `Error ${verify.status}`);
-          show('');
-          sign(challenge, challenge.currentWallet ?? body.boundWallet);
-        } catch (err) {
-          qr.replaceChildren();
-          button.disabled = false;
-          show(String(err?.message ?? err));
-        }
-      });
+    // Device check (Fingerprint): loads the agent with the public key and returns this visit's event ID,
+    // which the server checks with the secret key. Started when the page loads, so it is ready at signing.
+    function startDeviceCheck(config) {
+      if (!config) return Promise.reject(new Error('The device check is not available on this server.'));
+      return import(`https://fpjscdn.net/v4/${config.apiKey}`)
+        .then((Fingerprint) => Fingerprint.start({ region: config.region }))
+        .catch(() => { throw new Error('The device check could not load: disable ad or tracker blockers for this page and reload.'); });
     }
 
-    // Step 2 (or the only step, to unlink): sign the challenge with Phantom. `requiredWallet`: the wallet
-    // that must sign when this human or this device already has one.
-    function sign(challenge, requiredWallet) {
+    // Sign the challenge with Phantom:  (to link: after a device check). The wallet that must sign:
+    // to unlink, the linked one; to link on an extension that already has a wallet, that same one.
+    function sign(challenge) {
       const linking = challenge.action === 'link';
-      const mustUse = linking ? requiredWallet : challenge.wallet;
+      const mustUse = linking ? challenge.currentWallet : challenge.wallet;
+      const agent = linking ? startDeviceCheck(challenge.deviceCheck) : null;
+      agent?.catch(() => {}); // reported when the user clicks
       const button = el('button', { textContent: linking ? 'Connect Phantom and sign' : `Sign with ${short(challenge.wallet)} and unlink` });
       app.replaceChildren(
         el('div', { className: 'card' },
-          ...(linking ? [el('p', { className: 'muted', textContent: 'Step 2 of 2 · World ID verified ✓' })] : []),
           el('h2', { textContent: linking ? 'Link your Solana wallet' : 'Unlink wallet' }),
           el('p', { textContent: linking
-            ? 'Sign a message with Phantom to prove the wallet is yours. Your TRACE rewards will be sent there.'
+            ? 'Sign a message with Phantom to prove the wallet is yours. Your TRACE rewards will be sent there. A quick check of this browser runs too: each device can link one wallet.'
             : 'For security, only the linked wallet can unlink itself. Select this account in Phantom:' }),
-          ...(linking && mustUse ? [el('p', { textContent: 'Your World ID can only be linked to this wallet. Select it in Phantom:' })] : []),
+          ...(linking && mustUse ? [el('p', { textContent: 'This extension is already linked to this wallet. Select it in Phantom:' })] : []),
           ...(mustUse ? [el('p', {}, el('code', { textContent: mustUse }))] : []),
           el('p', { className: 'muted', textContent: 'Signing is free and moves no funds. This is the message:' }),
           el('pre', { textContent: challenge.message }),
@@ -189,10 +138,12 @@
             throw new Error(`Phantom has ${short(address)} selected: switch to account ${short(mustUse)} and try again.`);
           }
           const { signature } = await wallet.signMessage(new TextEncoder().encode(challenge.message), 'utf8');
+          // A fresh device check for every attempt: each one can be used only once.
+          const deviceEventId = agent ? (await (await agent).get()).event_id : undefined;
           const res = await fetch(`/api/link/${encodeURIComponent(code)}`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ wallet: address, signature: toBase64(signature) }),
+            body: JSON.stringify({ wallet: address, signature: toBase64(signature), deviceEventId }),
           });
           const body = await res.json();
           if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
@@ -206,22 +157,23 @@
     }
 
     function done(result) {
+      notifyExtension(result.action === 'unlink' ? 'wallet-unlinked' : 'wallet-linked');
       if (result.action === 'unlink') {
         app.replaceChildren(el('div', { className: 'card' },
           el('h2', { className: 'ok', textContent: 'Wallet unlinked' }),
-          el('p', { textContent: 'Your World ID stays tied to this wallet: to earn again, link this same wallet from the TRACE extension. You can close this tab.' })));
+          el('p', { textContent: 'To earn again from this computer, link this same wallet: each device can only link one wallet. ' + closeHint })));
         return;
       }
-      const lines = [
-        el('h2', { className: 'ok', textContent: 'Wallet linked' }),
-        el('p', {}, el('code', { textContent: result.wallet })),
-      ];
+      // Success popup: the extension then shows the summary of the shared data and its reward.
       const w = result.welcome;
-      if (w) {
-        lines.push(el('p', { textContent: `Welcome bonus: ${w.installment} TRACE every week you browse at least ${w.minActiveDays} days, up to ${w.total} TRACE, paid with your weekly rewards.` }));
-      }
-      lines.push(el('p', { className: 'muted', textContent: 'You can close this tab: points and payouts are in the extension.' }));
-      app.replaceChildren(el('div', { className: 'card' }, ...lines));
+      app.replaceChildren(el('div', { className: 'success', role: 'dialog', ariaModal: 'true' },
+        el('div', { className: 'check', textContent: '✓', ariaHidden: 'true' }),
+        el('h2', { textContent: 'Wallet connected successfully' }),
+        el('p', {}, el('code', { textContent: result.wallet })),
+        el('p', { textContent: 'Back in the TRACE extension you will see what your shared data is worth and claim your TRACE.' }),
+        ...(w ? [el('p', { className: 'muted', textContent: `Plus a welcome bonus: ${w.installment} TRACE every week you browse at least ${w.minActiveDays} days, up to ${w.total} TRACE.` })] : []),
+        el('p', { className: 'muted', textContent: closeHint }),
+      ));
     }
 
     load().catch(() => show('Server unreachable.'));

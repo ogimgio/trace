@@ -1,15 +1,17 @@
 {
   "name": "trace-server",
   "version": "1.0.0",
-  "description": "TRACE backend: stores consented browsing history on Postgres (Supabase) and pays rewards on Solana",
+  "description": "TRACE backend: stores consented browsing history on Postgres (Supabase), checks devices with Fingerprint and pays claimed rewards on Solana",
   "scripts": {
     "dev": "node --watch src/index.ts",
+    "dev:local": "node src/local.ts",
     "start": "node src/index.ts",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc",
     "solana:setup": "node src/solana/setup.ts",
     "solana:reward": "node src/solana/send-reward.ts",
     "rewards:settle": "node src/rewards/cli.ts",
+    "rewards:review": "node src/rewards/review.ts",
     "db:migrate": "node src/migrate.ts",
     "admin:delete-device": "node src/delete-device.ts"
   },
@@ -19,7 +21,6 @@
     "@solana/spl-token": "^0.4.15",
     "@solana/spl-token-metadata": "^0.1.6",
     "@solana/web3.js": "^1.99.0",
-    "@worldcoin/idkit-core": "^4.3.0",
     "express": "^5.2.1",
     "postgres": "^3.4.9"
   },

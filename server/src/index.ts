@@ -3,7 +3,7 @@ import { createApp } from './api.ts';
 import { connect, databaseUrl } from './db.ts';
 import { TOKEN_INFO_PATH, loadSolanaConfig } from './solana/config.ts';
 import { createRewarder } from './solana/rewards.ts';
-import { createWorldId, loadWorldIdConfig } from './worldid.ts';
+import { createDeviceCheck, loadFingerprintConfig } from './fingerprint.ts';
 
 // Server entry point, configured from the environment. On Vercel the default export becomes the function
 // (files in public/ are served by the CDN); locally it listens on 127.0.0.1.
@@ -13,9 +13,12 @@ const sql = connect(databaseUrl());
 const solana = loadSolanaConfig();
 if (!solana) console.warn(`Token not configured (${TOKEN_INFO_PATH} or environment variables): payouts stay queued.`);
 
-// World ID is required to link a wallet: without its configuration, linking is refused.
-const worldIdConfig = loadWorldIdConfig();
-if (!worldIdConfig) console.warn('World ID not configured (WORLD_APP_ID, WORLD_RP_ID, WORLD_RP_SIGNING_KEY): wallets cannot be linked.');
+// The device check (Fingerprint) is required to link a wallet: without it, linking is refused.
+const fingerprintConfig = loadFingerprintConfig();
+if (!fingerprintConfig) console.warn('Fingerprint not configured (FINGERPRINT_PUBLIC_KEY, FINGERPRINT_SECRET_KEY): wallets cannot be linked.');
+
+// Salt for the hashes of IPs (rate limits) and network fingerprints (device clusters).
+const salt = process.env.IP_HASH_SALT ?? process.env.CRON_SECRET ?? 'trace';
 
 const app = express();
 app.use(createApp(sql, {
@@ -23,8 +26,8 @@ app.use(createApp(sql, {
   decimals: solana?.decimals,
   cronSecret: process.env.CRON_SECRET,
   // IPs are hashed with this salt before being stored for rate limiting.
-  ipSalt: process.env.IP_HASH_SALT ?? process.env.CRON_SECRET,
-  worldId: worldIdConfig ? createWorldId(worldIdConfig) : undefined,
+  ipSalt: salt,
+  deviceCheck: fingerprintConfig ? createDeviceCheck(fingerprintConfig, salt) : undefined,
 }));
 
 export default app;

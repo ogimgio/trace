@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TRACE · Get paid for your browsing history</title>
-  <meta name="description" content="TRACE is a Chrome extension that rewards you in TRACE tokens on Solana for the browsing history you choose to share.">
+  <meta name="description" content="TRACE is a Chrome extension that shows what your browsing history is worth and pays you in TRACE tokens on Solana for the data you choose to share.">
   <meta property="og:title" content="TRACE · Get paid for your browsing history">
   <meta property="og:description" content="Your history is data. Get paid for it, in tokens on Solana.">
   <meta property="og:image" content="https://trace-token.vercel.app/logo-512.png">
@@ -269,7 +269,7 @@
   <section id="how">
     <div class="wrap">
       <p class="eyebrow">How it works</p>
-      <h2>Browse like always. Get paid every week.</h2>
+      <h2>Get paid for your history. Then for every day you share.</h2>
       <p class="section-lead">Trackers already collect your browsing history for free. TRACE flips that: you decide what to share, and you get the rewards.</p>
       <div class="steps">
         <div class="card step">
@@ -279,13 +279,13 @@
         </div>
         <div class="card step">
           <div class="step-num">2</div>
-          <h3>Verify and link your wallet</h3>
-          <p>Prove with World ID that you are a unique human, then sign one message with Phantom. It's free, moves no funds, and starts your welcome bonus: 50 TRACE a week, up to 500.</p>
+          <h3>Connect your wallet</h3>
+          <p>Sign one message with Phantom to prove the wallet is yours. A quick check of your browser makes sure each device links one wallet. It's free, moves no funds, and starts your welcome bonus: 50 TRACE a week, up to 500.</p>
         </div>
         <div class="card step">
           <div class="step-num">3</div>
-          <h3>Earn every week</h3>
-          <p>New visits sync in the background. Each week your points turn into TRACE, sent straight to your wallet with a public transaction.</p>
+          <h3>See your reward, then claim it</h3>
+          <p>Your history syncs right away, then every hour. The extension shows what your data is worth: confirm, and the TRACE are sent straight to your wallet with a public transaction.</p>
         </div>
       </div>
     </div>
@@ -295,27 +295,27 @@
     <div class="wrap">
       <p class="eyebrow">Earn</p>
       <h2>Simple rules. Built to reward real people, not bots.</h2>
-      <p class="section-lead">A fixed weekly budget is split among everyone in proportion to their points. The rules are public and enforced by the server, and every payout is on-chain.</p>
+      <p class="section-lead">Every day you share earns points, and 1 point = 1 TRACE. Your last 90 days of history count right away, then every new day while you keep sharing. You see the exact amount before you claim it, and every payout is on-chain.</p>
       <div class="earn-grid">
         <div class="rules">
           <div class="rule"><div class="rule-icon">🌐</div><div><h3>Unique pages count, up to 1,000</h3><p>Domain plus path, without the query string. A script opening thousands of URLs gains nothing past the cap.</p></div></div>
           <div class="rule"><div class="rule-icon">📅</div><div><h3>+100 points per active day</h3><p>Any day with at least 5 visits. Consistency matters more than volume, and it's hard to fake.</p></div></div>
           <div class="rule"><div class="rule-icon">🎁</div><div><h3>500 TRACE welcome bonus</h3><p>Paid like interest: 50 TRACE every week you browse at least 3 days, for your first 10 active weeks. Once per device and per wallet.</p></div></div>
-          <div class="rule"><div class="rule-icon">📉</div><div><h3>A budget that never runs dry</h3><p>5M TRACE in week one, 1% less every week. All weekly budgets add up to exactly the 500M reward pool.</p></div></div>
+          <div class="rule"><div class="rule-icon">🧾</div><div><h3>Each day is rewarded once</h3><p>Re-uploading the same history, from a reinstall or another computer, earns nothing new. Visits already shared from another install don't count.</p></div></div>
         </div>
 
         <div class="card calc">
-          <h3>Estimate your weekly rewards</h3>
-          <p class="note" style="margin:0">Move the sliders to match a typical week.</p>
-          <label for="pages">Unique pages visited <span id="pages-out">600</span></label>
-          <input id="pages" type="range" min="0" max="2000" step="10" value="600">
-          <label for="days">Active days <span id="days-out">5</span></label>
-          <input id="days" type="range" min="0" max="7" step="1" value="5">
+          <h3>Estimate your reward</h3>
+          <p class="note" style="margin:0">Move the sliders to match your browsing.</p>
+          <label for="pages">Unique pages a day <span id="pages-out">40</span></label>
+          <input id="pages" type="range" min="0" max="150" step="5" value="40">
+          <label for="days">Days of history shared <span id="days-out">60</span></label>
+          <input id="days" type="range" min="0" max="90" step="1" value="60">
           <div class="calc-out">
-            <div><small>Points this week</small><strong id="points-out">1,100</strong></div>
-            <div style="text-align:right"><small>Up to</small><strong id="tokens-out">1,100</strong> <small>TRACE / week</small></div>
+            <div><small>Points</small><strong id="points-out">8,400</strong></div>
+            <div style="text-align:right"><small>Your reward</small><strong id="tokens-out">8,400</strong> <small>TRACE</small></div>
           </div>
-          <p class="note">Each point pays at most 1 TRACE. When many people share, the weekly budget is split proportionally.</p>
+          <p class="note">Each day: unique pages (max 100) + 100 if you made at least 5 visits. 1 point = 1 TRACE. Then every new day adds up to 200 TRACE.</p>
         </div>
       </div>
     </div>
@@ -350,9 +350,9 @@
         <div class="card feature"><span class="feature-badge">Consent first</span><h3>Opt-in, revocable anytime</h3><p>Chrome's history permission is optional and only requested when you accept. Withdraw it with one click.</p></div>
         <div class="card feature"><span class="feature-badge">Filtered locally</span><h3>Private stuff stays private</h3><p>Local files, browser-internal pages, localhost and private-network addresses never leave your browser.</p></div>
         <div class="card feature"><span class="feature-badge">Signature-locked</span><h3>Nobody can redirect your rewards</h3><p>Your wallet is linked by signature, and changing it requires a signature from that same wallet.</p></div>
-        <div class="card feature"><span class="feature-badge">Fairly paid</span><h3>Every payout is public</h3><p>What you share earns TRACE every week, and every payout is a Solana transaction anyone can verify.</p></div>
-        <div class="card feature"><span class="feature-badge">World ID</span><h3>One person, one wallet. Anonymously.</h3><p>To earn, you verify once with World ID (Orb). We only receive an anonymous code, unique to TRACE: never your name, photo, iris data or World ID account. It is used only to verify that each wallet belongs to a different person and to keep the platform secure, and it is never shared.</p></div>
-        <div class="card feature"><span class="feature-badge">Anonymous only</span><h3>Nothing shared identifies you</h3><p>Third parties only ever receive anonymized, aggregated insights about browsing trends. Your World ID data and your individual history are never shared.</p></div>
+        <div class="card feature"><span class="feature-badge">Fairly paid</span><h3>Every payout is public</h3><p>You see what your data is worth before you claim it, and every payout is a Solana transaction anyone can verify.</p></div>
+        <div class="card feature"><span class="feature-badge">Fair for everyone</span><h3>One device, one wallet</h3><p>When you link your wallet, a device check (Fingerprint) recognizes your browser so the same computer can't farm rewards with many wallets. Bots and virtual machines are turned away. You can still use your wallet on all your own devices. The check is used only for security and is never shared.</p></div>
+        <div class="card feature"><span class="feature-badge">Anonymous only</span><h3>Nothing shared identifies you</h3><p>Third parties only ever receive anonymized, aggregated insights about browsing trends. Your device check data and your individual history are never shared.</p></div>
       </div>
     </div>
   </section>
@@ -367,9 +367,9 @@
           <h3 style="font:700 22px var(--display);margin:0">1,000,000,000 TRACE</h3>
           <div class="supply-bar"><div class="pool">50% rewards</div><div class="reserve">50% reserve</div></div>
           <div class="legend">
-            <div>Rewards pool: paid out to users week by week.</div>
+            <div>Rewards pool: paid out to users as they claim the data they share.</div>
             <div>Reserve: team, ecosystem and liquidity, in a separate wallet the server never touches.</div>
-            <div>Transfers cost a fraction of a cent and settle in seconds, so even small weekly rewards make sense.</div>
+            <div>Transfers cost a fraction of a cent and settle in seconds, so even small daily rewards make sense.</div>
           </div>
         </div>
         <div class="card addr">
@@ -387,8 +387,8 @@
       <p class="eyebrow">FAQ</p>
       <h2>Questions, answered.</h2>
       <div class="faq">
-        <details><summary>What exactly is shared?</summary><p>For each visit: the page address and title, the time, and how you got there (link, typed, bookmark). Plus a random device ID and, if you link one, your wallet address and the anonymous World ID code. Never page contents, cookies, passwords or form data.</p></details>
-        <details><summary>Why do I need World ID, and what do you learn about me?</summary><p>Rewards are for real people, so each person can link one wallet only. World ID proves you are a unique human without telling us who you are: we receive an anonymous code that is the same every time you verify with TRACE and different in every other app. We don't receive your name, photo, iris data or any document, and we can't link the code to your identity. We use it only for verification and platform security, keep it next to your wallet address to enforce one wallet per person, and never share or sell it.</p></details>
+        <details><summary>What exactly is shared?</summary><p>For each visit: the page address and title, the time, and how you got there (link, typed, bookmark). Plus a random device ID and, if you link one, your wallet address and the result of the device check. Never page contents, cookies, passwords or form data.</p></details>
+        <details><summary>What is the device check?</summary><p>When you link a wallet, Fingerprint recognizes your browser and device, so one computer can't link dozens of wallets to farm rewards, and bots or virtual machines are refused. It doesn't need any app or document. We keep an identifier of the device and a few risk signals (VPN, private browsing, a risk score), used only for security: suspicious accounts are reviewed by hand before being paid, never blocked automatically. Your own wallet can be linked from all your devices.</p></details>
         <details><summary>Who sees my data?</summary><p>Only TRACE and the infrastructure providers that host it. Third parties only receive anonymized, aggregated insights about browsing trends, which can't identify you. Your payouts are public on the Solana blockchain, like every transaction.</p></details>
         <details><summary>Do I need SOL or crypto experience?</summary><p>No. You only need a Phantom wallet to receive tokens. TRACE pays all transaction fees, and linking your wallet is a free signature, not a transaction.</p></details>
         <details><summary>Is this real money?</summary><p>Not yet. The MVP runs on Solana Devnet, so TRACE tokens are test tokens with no market value. The mechanics, transactions and fixed supply are real and verifiable on-chain.</p></details>
@@ -426,11 +426,13 @@
   <script>
     const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
-    // Reward estimate: same formula as the server (min(pages, 1000) + 100 × active days, max 1 TRACE per point).
+    // Reward estimate: same formula as the server, per day min(pages, 100) + 100 for an active day, 1 TRACE per point.
+    // (Days with at least one page are assumed active.)
     const pages = document.getElementById('pages');
     const days = document.getElementById('days');
     function updateCalc() {
-      const points = Math.min(Number(pages.value), 1000) + 100 * Number(days.value);
+      const perDay = Number(pages.value) > 0 ? Math.min(Number(pages.value), 100) + 100 : 0;
+      const points = perDay * Number(days.value);
       document.getElementById('pages-out').textContent = fmt(pages.value);
       document.getElementById('days-out').textContent = days.value;
       document.getElementById('points-out').textContent = fmt(points);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, createPrivateKey, sign } from 'node:crypto';
+import { createPrivateKey, sign } from 'node:crypto';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
@@ -8,8 +8,7 @@ import { createApp } from '../src/api.ts';
 import { startTestDb } from './db.ts';
 import type { Sql } from '../src/db.ts';
 import { CHALLENGE_TTL_MS } from '../src/rewards/link.ts';
-import { EPOCH_MS } from '../src/rewards/policy.ts';
-import type { WorldId } from '../src/worldid.ts';
+import type { DeviceCheck } from '../src/fingerprint.ts';
 
 const DAY = 86_400_000;
 
@@ -33,21 +32,18 @@ let clock = Date.now();
 let db: Sql;
 const sent: string[] = [];
 
-// Stand-in for World ID (the real one is tested in worldid.test.ts): the "proof" names a human, and the
-// nullifier is derived from that name, so the same human always gets the same nullifier.
-let nonces = 0;
-const worldId: WorldId = {
-  action: 'link-wallet',
-  start: (signal) => ({
-    appId: 'app_test', action: 'link-wallet', environment: 'staging', signal,
-    rpContext: { rp_id: 'rp_test', nonce: `nonce-${++nonces}`, created_at: 0, expires_at: 0, signature: '0x' },
-  }),
-  verify: async (result, expected) => {
-    const r = result as { human: string; signal: string; nonce: string };
-    if (r.signal !== expected.signal || r.nonce !== expected.nonce) return { ok: false, error: 'proof bound to a different link' };
-    return { ok: true, nullifier: BigInt(`0x${createHash('sha256').update(r.human).digest('hex')}`).toString() };
+// Stand-in for Fingerprint (the real one is tested in fingerprint.test.ts): the event ID names the device
+// ("device:n"). A device named "bot…" is refused like an automated browser.
+let events = 0;
+const deviceCheck: DeviceCheck = {
+  browser: { apiKey: 'pk_test', region: 'eu' },
+  check: async (eventId) => {
+    const visitorId = eventId.split(':')[0];
+    if (visitorId.startsWith('bot')) return { ok: false, error: 'automated browser detected' };
+    return { ok: true, visitorId, signals: { suspectScore: 0, vpn: false, incognito: false, clusterKey: `net-${visitorId}` } };
   },
 };
+const deviceEvent = (device: string) => `${device}:${++events}`;
 
 before(async () => {
   const rewarder = {
@@ -58,7 +54,7 @@ before(async () => {
   };
   const db0 = await startTestDb();
   db = db0.sql;
-  const server = createApp(db0.sql, { rewarder, now: () => clock, cronSecret: 'cron-test', rateLimits: false, worldId }).listen(0, '127.0.0.1');
+  const server = createApp(db0.sql, { rewarder, now: () => clock, cronSecret: 'cron-test', rateLimits: false, deviceCheck }).listen(0, '127.0.0.1');
   await once(server, 'listening');
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = async () => {
@@ -89,23 +85,17 @@ async function challenge(deviceId: string, action: 'link' | 'unlink' = 'link') {
   return { status: res.status, body: await res.json() };
 }
 
-// Proves with (fake) World ID that `human` is behind this link code.
-async function proveHuman(code: string, human: string) {
-  const started = await fetch(`${base}/api/link/${code}/worldid/start`, json('POST'));
-  const start = await started.json();
-  if (!started.ok) return { status: started.status, body: start };
-  const res = await fetch(`${base}/api/link/${code}/worldid`, json('POST', { human, signal: start.signal, nonce: start.rpContext.nonce }));
-  return { status: res.status, body: await res.json() };
-}
-
-// Signs the link with Phantom. For 'link' it first proves with World ID as `human` (by default one human
-// per wallet); `human: null` skips the proof.
-async function submit(code: string, keypair: Keypair, message?: string, human: string | null = keypair.publicKey.toBase58()) {
+// Signs the link with Phantom from `device` (by default each wallet on its own device). `eventId` overrides
+// the device check's event (e.g. to replay one); `null` sends none.
+async function submit(
+  code: string, keypair: Keypair, message?: string,
+  device = `pc-${keypair.publicKey.toBase58().slice(0, 8)}`, eventId: string | null = deviceEvent(device),
+) {
   const info = await (await fetch(`${base}/api/link/${code}`)).json();
-  if (info.action === 'link' && !info.worldIdVerified && human !== null) await proveHuman(code, human);
   const res = await fetch(`${base}/api/link/${code}`, json('POST', {
     wallet: keypair.publicKey.toBase58(),
     signature: signWith(keypair, message ?? info.message),
+    ...(eventId === null ? {} : { deviceEventId: eventId }),
   }));
   return { status: res.status, body: await res.json() };
 }
@@ -122,6 +112,8 @@ test('signed link connects the wallet and explains the weekly welcome installmen
   assert.equal(info.status, 'valid');
   assert.match(info.message, /Link this wallet to device dev-1/);
   assert.match(info.message, new RegExp(c.code));
+  // The page gets the public Fingerprint key to run the device check
+  assert.deepEqual(info.deviceCheck, { apiKey: 'pk_test', region: 'eu' });
 
   const { status, body } = await submit(c.code, alice);
   assert.equal(status, 200);
@@ -129,10 +121,10 @@ test('signed link connects the wallet and explains the weekly welcome installmen
   // The bonus is no longer sent on link: it is paid weekly to wallets that keep browsing
   assert.deepEqual(body.welcome, { installment: '50', total: '500', minActiveDays: 3 });
   assert.equal(sent.length, 0);
-  assert.equal(body.verified, true);
+  assert.equal(body.deviceChecked, true);
   const r = await rewards('dev-1');
   assert.equal(r.wallet, alice.publicKey.toBase58());
-  assert.equal(r.verified, true);
+  assert.equal(r.deviceChecked, true);
 });
 
 test('a wrong signature is rejected and does not burn the code', async () => {
@@ -227,74 +219,107 @@ test('challenge errors and the signing page', async () => {
   assert.equal(unsigned.status, 404);
 
   const r = await rewards('dev-6');
-  assert.equal(r.currentWeek.endsAt - r.currentWeek.startsAt, EPOCH_MS);
+  assert.equal(r.offer.points, 0); // newDevice() uploads the same visits for every device: all exact copies of dev-1's
+  assert.equal(r.rules.historyDays, 90);
 });
 
-// --- World ID: one human, one wallet ---
+// --- Device check (Fingerprint): one device, one wallet ---
 
-test('a wallet cannot be linked without World ID, and trying does not burn the code', async () => {
-  await newDevice('dev-w1');
+test('linking requires a passed device check, and a failed one does not burn the code', async () => {
+  await newDevice('dev-f1');
   const alice = Keypair.generate();
-  const { body: c } = await challenge('dev-w1');
-  const refused = await submit(c.code, alice, undefined, null);
-  assert.equal(refused.status, 403);
-  assert.match(refused.body.error, /World ID/);
-  assert.equal((await rewards('dev-w1')).wallet, null);
-  // After proving, the same code works
-  assert.equal((await submit(c.code, alice)).status, 200);
+  const { body: c } = await challenge('dev-f1');
+  const missing = await submit(c.code, alice, undefined, 'pc-f1', null);
+  assert.equal(missing.status, 400);
+  const bot = await submit(c.code, alice, undefined, 'bot-farm');
+  assert.equal(bot.status, 403);
+  assert.match(bot.body.error, /automated/);
+  assert.equal((await rewards('dev-f1')).wallet, null);
+  assert.equal((await submit(c.code, alice, undefined, 'pc-f1')).status, 200);
 });
 
-test('one human cannot link a second wallet, but can link the same wallet on another device', async () => {
-  await newDevice('dev-w2');
-  await newDevice('dev-w3');
-  await newDevice('dev-w4');
-  const first = Keypair.generate();
-  const second = Keypair.generate();
-  assert.equal((await submit((await challenge('dev-w2')).body.code, first, undefined, 'carol')).status, 200);
+test('a device links one wallet, and the same wallet can be linked from several devices', async () => {
+  for (const id of ['dev-f2', 'dev-f3', 'dev-f4', 'dev-f5']) await newDevice(id);
+  const alice = Keypair.generate();
+  const mallory = Keypair.generate();
+  assert.equal((await submit((await challenge('dev-f2')).body.code, alice, undefined, 'office-pc')).status, 200);
 
-  // Carol on another device with a new wallet: refused, and told which wallet her World ID belongs to
-  const { body: c } = await challenge('dev-w3');
-  const proof = await proveHuman(c.code, 'carol');
-  assert.equal(proof.body.boundWallet, first.publicKey.toBase58());
-  const refused = await submit(c.code, second, undefined, 'carol');
+  // Another wallet from the same computer: refused, and the attempt is logged
+  const refused = await submit((await challenge('dev-f3')).body.code, mallory, undefined, 'office-pc');
   assert.equal(refused.status, 409);
   assert.match(refused.body.error, /one wallet only/);
-  assert.equal((await rewards('dev-w3')).wallet, null);
+  const [logged] = await db`SELECT COUNT(*)::int AS n FROM device_link_rejections WHERE visitor_id = 'office-pc'`;
+  assert.equal(logged.n, 1);
 
-  // Her own wallet on a second device is fine
-  assert.equal((await submit((await challenge('dev-w4')).body.code, first, undefined, 'carol')).status, 200);
-  // And another human cannot take over Carol's verified wallet
-  await newDevice('dev-w5');
-  const stolen = await submit((await challenge('dev-w5')).body.code, first, undefined, 'dave');
-  assert.equal(stolen.status, 409);
-  assert.match(stolen.body.error, /another person/);
+  // Alice's own wallet on her laptop, and again on the office PC: both fine
+  assert.equal((await submit((await challenge('dev-f4')).body.code, alice, undefined, 'alice-laptop')).status, 200);
+  assert.equal((await submit((await challenge('dev-f5')).body.code, alice, undefined, 'office-pc')).status, 200);
+  const devices = await db<{ visitor_id: string }[]>`SELECT visitor_id FROM device_fingerprints WHERE wallet = ${alice.publicKey.toBase58()} ORDER BY visitor_id`;
+  assert.deepEqual(devices.map((d) => d.visitor_id), ['alice-laptop', 'office-pc']);
 });
 
-test('a World ID proof made for another link is rejected', async () => {
-  await newDevice('dev-w6');
-  await newDevice('dev-w7');
-  const a = (await challenge('dev-w6')).body.code;
-  const b = (await challenge('dev-w7')).body.code;
-  const startA = await (await fetch(`${base}/api/link/${a}/worldid/start`, json('POST'))).json();
-  await fetch(`${base}/api/link/${b}/worldid/start`, json('POST'));
-  // The proof commits to link A: sent to link B it does not verify
-  const res = await fetch(`${base}/api/link/${b}/worldid`, json('POST', { human: 'erin', signal: startA.signal, nonce: startA.rpContext.nonce }));
-  assert.equal(res.status, 400);
-  assert.equal((await (await fetch(`${base}/api/link/${b}`)).json()).worldIdVerified, false);
+test('a device check counts once', async () => {
+  await newDevice('dev-f6');
+  await newDevice('dev-f7');
+  const alice = Keypair.generate();
+  const used = deviceEvent('pc-f6');
+  assert.equal((await submit((await challenge('dev-f6')).body.code, alice, undefined, 'pc-f6', used)).status, 200);
+  const replay = await submit((await challenge('dev-f7')).body.code, alice, undefined, 'pc-f6', used);
+  assert.equal(replay.status, 409);
+  assert.match(replay.body.error, /already used/);
 });
 
-test('a wallet linked before World ID was required can be verified, and is not paid until then', async () => {
+test('a device can link only a few extension installs per month', async () => {
+  const alice = Keypair.generate();
+  for (let i = 1; i <= 4; i++) await newDevice(`dev-i${i}`);
+  for (let i = 1; i <= 3; i++) assert.equal((await submit((await challenge(`dev-i${i}`)).body.code, alice, undefined, 'reinstaller')).status, 200);
+  // A fourth fresh install from the same browser within 30 days
+  const fourth = await submit((await challenge('dev-i4')).body.code, alice, undefined, 'reinstaller');
+  assert.equal(fourth.status, 429);
+  clock += 31 * DAY;
+  try {
+    assert.equal((await submit((await challenge('dev-i4')).body.code, alice, undefined, 'reinstaller')).status, 200);
+  } finally {
+    clock -= 31 * DAY;
+  }
+});
+
+test('a wallet linked before the device check existed earns nothing until it passes it', async () => {
   const legacy = Keypair.generate();
   await newDevice('dev-legacy');
   await db`UPDATE devices SET wallet_address = ${legacy.publicKey.toBase58()} WHERE id = 'dev-legacy'`;
-  assert.equal((await rewards('dev-legacy')).verified, false);
+  const before = await rewards('dev-legacy');
+  assert.equal(before.deviceChecked, false);
+  const claim = await fetch(`${base}/api/devices/dev-legacy/claim`, json('POST'));
+  assert.equal(claim.status, 403);
 
-  // 'link' is allowed again on an unverified wallet, but only for that same wallet
-  const other = await submit((await challenge('dev-legacy')).body.code, Keypair.generate());
-  assert.equal(other.status, 409);
-  const ok = await submit((await challenge('dev-legacy')).body.code, legacy);
-  assert.equal(ok.status, 200);
-  assert.equal((await rewards('dev-legacy')).verified, true);
-  // Once verified, a new link request needs an unlink first, as before
+  // 'link' is allowed again on that wallet, but only for the same wallet
+  assert.equal((await submit((await challenge('dev-legacy')).body.code, Keypair.generate())).status, 409);
+  assert.equal((await submit((await challenge('dev-legacy')).body.code, legacy)).status, 200);
+  assert.equal((await rewards('dev-legacy')).deviceChecked, true);
+  // Once checked, a new link request needs an unlink first, as before
   assert.equal((await challenge('dev-legacy')).status, 409);
+});
+
+test('the extension install limit can be turned off (local development)', async () => {
+  const { startTestDb } = await import('./db.ts');
+  const dev = await startTestDb();
+  const server = createApp(dev.sql, { rateLimits: false, deviceCheck, maxExtensionsPerDevice: false }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const devBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const alice = Keypair.generate();
+    for (let i = 1; i <= 5; i++) {
+      await fetch(`${devBase}/api/visits`, json('POST', { deviceId: `dev-x${i}`, visits: [] }));
+      const { code } = await (await fetch(`${devBase}/api/devices/dev-x${i}/link-challenge`, json('POST', {}))).json();
+      const info = await (await fetch(`${devBase}/api/link/${code}`)).json();
+      const res = await fetch(`${devBase}/api/link/${code}`, json('POST', {
+        wallet: alice.publicKey.toBase58(), signature: signWith(alice, info.message), deviceEventId: deviceEvent('dev-pc'),
+      }));
+      assert.equal(res.status, 200, `install ${i}`);
+    }
+  } finally {
+    server.close();
+    await dev.stop();
+  }
 });

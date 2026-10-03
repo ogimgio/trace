@@ -251,3 +251,201 @@ code {
 a {
   color: var(--link);
 }
+
+/* Modals (modals.ts): wallet connected, offer review, celebration. */
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.55);
+}
+
+#overlay[hidden] {
+  display: none;
+}
+
+.modal {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  text-align: center;
+  overflow: hidden;
+  animation: pop 0.25s ease-out;
+}
+
+.modal p {
+  margin: 4px 0 10px;
+}
+
+.modal-title {
+  margin: 4px 0 6px;
+  font-size: 20px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+}
+
+.modal-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 8px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.modal-icon.ok {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.modal code {
+  word-break: break-all;
+}
+
+.modal button {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--card);
+  text-align: left;
+}
+
+.summary dt {
+  color: var(--muted);
+}
+
+.summary dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+}
+
+.reward,
+.claim {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 12px 0 8px;
+  padding: 12px;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+}
+
+.reward strong,
+.claim strong {
+  font-size: 20px;
+}
+
+.modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.celebrate .trophy {
+  font-size: 56px;
+  animation: bounce 0.9s ease-in-out 2;
+}
+
+.earned {
+  font-size: 34px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.earned span {
+  font-size: 18px;
+}
+
+.confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.confetti i {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation-name: fall;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+}
+
+@keyframes fall {
+  0% { opacity: 1; translate: 0 0; rotate: 0deg; }
+  85% { opacity: 1; }
+  100% { opacity: 0; translate: 0 100vh; rotate: 720deg; }
+}
+
+@keyframes pop {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-14px) scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal, .celebrate .trophy, .confetti i { animation: none; }
+  .confetti { display: none; }
+}
+
+.modal-icon.wallet {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.sad {
+  font-size: 56px;
+  line-height: 1;
+  margin-bottom: 4px;
+  animation: droop 1.2s ease-in-out;
+}
+
+@keyframes droop {
+  0%, 100% { transform: rotate(0); }
+  30% { transform: rotate(-8deg); }
+  60% { transform: rotate(6deg); }
+}
+
+/* Green state once the wallet is linked (instead of the connect button). */
+.connected {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--ok);
+  color: #fff;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sad { animation: none; }
+}

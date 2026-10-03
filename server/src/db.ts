@@ -52,19 +52,42 @@ export const SCHEMA = `
     epoch       integer NOT NULL,
     device_id   text NOT NULL,
     wallet      text NOT NULL,
-    kind        text NOT NULL CHECK (kind IN ('weekly', 'welcome')),
+    kind        text NOT NULL,
     points      integer NOT NULL,
     amount      numeric(40, 0) NOT NULL,
-    status      text NOT NULL CHECK (status IN ('pending', 'sending', 'sent', 'failed')),
+    status      text NOT NULL,
     signature   text,
     error       text,
     created_at  bigint NOT NULL,
-    sent_at     bigint,
-    UNIQUE (epoch, device_id, kind)
+    sent_at     bigint
+  );
+
+  -- 'held': waiting for manual review (risky device, see rewards/risk.ts); 'rejected': refused on review.
+  ALTER TABLE reward_payouts ADD COLUMN IF NOT EXISTS hold_reason text;
+  ALTER TABLE reward_payouts DROP CONSTRAINT IF EXISTS reward_payouts_status_check;
+  ALTER TABLE reward_payouts ADD CONSTRAINT reward_payouts_status_check
+    CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'held', 'rejected'));
+
+  -- 'claim': shared data claimed from the extension (rewards/claims.ts), any number per device and week.
+  -- The weekly kinds stay at most one per device per week.
+  ALTER TABLE reward_payouts DROP CONSTRAINT IF EXISTS reward_payouts_kind_check;
+  ALTER TABLE reward_payouts ADD CONSTRAINT reward_payouts_kind_check CHECK (kind IN ('weekly', 'welcome', 'claim'));
+  ALTER TABLE reward_payouts DROP CONSTRAINT IF EXISTS reward_payouts_epoch_device_id_kind_key;
+  CREATE UNIQUE INDEX IF NOT EXISTS reward_payouts_one_per_week ON reward_payouts (epoch, device_id, kind) WHERE kind <> 'claim';
+
+  -- Shared days already paid, per wallet: each UTC day of browsing is paid once, whichever device or
+  -- install uploads it (rewards/claims.ts).
+  CREATE TABLE IF NOT EXISTS reward_days (
+    wallet     text NOT NULL,
+    day        integer NOT NULL,
+    device_id  text NOT NULL,
+    points     integer NOT NULL,
+    payout_id  bigint NOT NULL,
+    PRIMARY KEY (wallet, day)
   );
 
   -- The welcome bonus is paid in weekly installments: at most one per wallet per week
-  -- (one per device per week is already guaranteed by the UNIQUE above).
+  -- (one per device per week is guaranteed by reward_payouts_one_per_week).
   DROP INDEX IF EXISTS reward_payouts_one_welcome;
   DROP INDEX IF EXISTS reward_payouts_one_welcome_per_wallet;
   CREATE UNIQUE INDEX IF NOT EXISTS reward_payouts_welcome_wallet_week ON reward_payouts (epoch, wallet) WHERE kind = 'welcome';
@@ -80,19 +103,46 @@ export const SCHEMA = `
     used_at     bigint
   );
 
-  -- World ID: the verified link in progress (nonce of the signed request, then the nullifier it produced).
-  ALTER TABLE wallet_challenges ADD COLUMN IF NOT EXISTS worldid_nonce text;
-  ALTER TABLE wallet_challenges ADD COLUMN IF NOT EXISTS worldid_nullifier numeric(78, 0);
+  -- One device, one wallet: Fingerprint's visitor ID (a stable browser/device identifier) bound to the first
+  -- wallet linked from it. A wallet may have several devices. Signals are kept from the latest check.
+  CREATE TABLE IF NOT EXISTS device_fingerprints (
+    visitor_id     text PRIMARY KEY,
+    wallet         text NOT NULL,
+    first_seen_at  bigint NOT NULL,
+    last_seen_at   bigint NOT NULL,
+    suspect_score  integer,
+    vpn            boolean NOT NULL DEFAULT false,
+    incognito      boolean NOT NULL DEFAULT false,
+    cluster_key    text
+  );
 
-  -- One human, one wallet. The nullifier is the anonymous number World ID gives for a person and this app:
-  -- no name, no biometrics. It is bound to the first wallet forever (a human cannot verify a second wallet)
-  -- and is kept even if a device's data is deleted, otherwise deleting would reset the one-wallet rule.
-  CREATE TABLE IF NOT EXISTS worldid_verifications (
-    action       text NOT NULL,
-    nullifier    numeric(78, 0) NOT NULL,
-    wallet       text NOT NULL UNIQUE,
-    verified_at  bigint NOT NULL,
-    PRIMARY KEY (action, nullifier)
+  CREATE INDEX IF NOT EXISTS device_fingerprints_wallet ON device_fingerprints (wallet);
+  CREATE INDEX IF NOT EXISTS device_fingerprints_cluster ON device_fingerprints (cluster_key);
+
+  -- Extension installs (device IDs) linked from each device: a browser that keeps reinstalling the
+  -- extension to start fresh histories is limited per month.
+  CREATE TABLE IF NOT EXISTS device_extensions (
+    visitor_id  text NOT NULL,
+    device_id   text NOT NULL,
+    linked_at   bigint NOT NULL,
+    PRIMARY KEY (visitor_id, device_id)
+  );
+
+  -- Link attempts refused because the device already belongs to another wallet: a device that keeps
+  -- trying new wallets gets its own wallet's payouts held for review.
+  CREATE TABLE IF NOT EXISTS device_link_rejections (
+    id          bigserial PRIMARY KEY,
+    visitor_id  text NOT NULL,
+    wallet      text NOT NULL,
+    created_at  bigint NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS device_link_rejections_visitor ON device_link_rejections (visitor_id, created_at);
+
+  -- Fingerprint event IDs already used to link: each device check counts once.
+  CREATE TABLE IF NOT EXISTS fingerprint_events (
+    event_id  text PRIMARY KEY,
+    used_at   bigint NOT NULL
   );
 
   -- Every link and unlink, so the full wallet ↔ device history is known even after a wallet is replaced.
@@ -126,7 +176,11 @@ export const SCHEMA = `
   ALTER TABLE wallet_challenges ENABLE ROW LEVEL SECURITY;
   ALTER TABLE wallet_links ENABLE ROW LEVEL SECURITY;
   ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY;
-  ALTER TABLE worldid_verifications ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE device_fingerprints ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE fingerprint_events ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE device_extensions ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE device_link_rejections ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE reward_days ENABLE ROW LEVEL SECURITY;
 `;
 
 export function connect(url: string, options: postgres.Options<{}> = {}): Sql {

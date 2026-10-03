@@ -1,7 +1,7 @@
-import { uploadVisits } from '../lib/api';
-import { RETRY_ALARM, RETRY_DELAY_MINUTES, SYNC_ALARM, UPLOAD_BATCH_SIZE } from '../lib/config';
+import { startWalletLink, uploadVisits } from '../lib/api';
+import { RETRY_ALARM, RETRY_DELAY_MINUTES, SERVER_URL, SYNC_ALARM, UPLOAD_BATCH_SIZE } from '../lib/config';
 import { collectVisitsSince } from '../lib/history';
-import type { Message } from '../lib/messages';
+import type { ExternalMessage, Message } from '../lib/messages';
 import { ensureDeviceId, getState, setState, type SyncTrigger } from '../lib/storage';
 
 // A freshly started service worker has no sync in progress: reset a flag left
@@ -101,6 +101,23 @@ chrome.permissions.onRemoved.addListener(async ({ permissions }) => {
   await chrome.alarms.clear(RETRY_ALARM);
 });
 
+// Wallet linking: Phantom only works on web pages, so the signing page (served by our server) opens in a small
+// popup window over the current one. When it is done it messages us and we close it.
+const LINK_WINDOW = { width: 440, height: 720 };
+
+async function openLinkWindow(action: 'link' | 'unlink'): Promise<void> {
+  const { deviceId } = await getState();
+  const { url } = await startWalletLink(deviceId, action);
+  const current = await chrome.windows.getLastFocused().catch(() => null);
+  const left = current?.left !== undefined && current.width ? Math.round(current.left + (current.width - LINK_WINDOW.width) / 2) : undefined;
+  const top = current?.top !== undefined && current.height ? Math.round(current.top + (current.height - LINK_WINDOW.height) / 3) : undefined;
+  const win = await chrome.windows.create({
+    url: `${url}&ext=${chrome.runtime.id}`, type: 'popup', focused: true, ...LINK_WINDOW, left, top,
+  });
+  // Remembered across service worker restarts, so only this window is ever closed for the user.
+  await chrome.storage.session.set({ linkWindowId: win?.id ?? null });
+}
+
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   switch (message.type) {
     case 'sync-now':
@@ -110,5 +127,23 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
     case 'reschedule':
       scheduleSync().then(() => sendResponse({ ok: true }));
       return true;
+    case 'link-wallet':
+      openLinkWindow(message.action).then(
+        () => sendResponse({ ok: true }),
+        (err) => sendResponse({ ok: false, error: String(err) }),
+      );
+      return true;
+  }
+});
+
+chrome.runtime.onMessageExternal.addListener(async (message: ExternalMessage, sender) => {
+  if (sender.origin !== new URL(SERVER_URL).origin) return;
+  if (message.type !== 'wallet-linked' && message.type !== 'wallet-unlinked') return;
+  await setState({ walletChangedAt: Date.now() });
+  const { linkWindowId } = (await chrome.storage.session.get('linkWindowId')) as { linkWindowId?: number | null };
+  if (typeof linkWindowId === 'number' && sender.tab?.windowId === linkWindowId) {
+    // Leave the success message on screen for a moment.
+    setTimeout(() => void chrome.windows.remove(linkWindowId).catch(() => {}), 1500);
+    await chrome.storage.session.remove('linkWindowId');
   }
 });

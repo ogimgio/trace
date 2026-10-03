@@ -20,6 +20,13 @@ export interface State {
   lastSyncResult: SyncResult | null;
   syncIntervalMinutes: number;
   syncing: boolean;
+  // Popup modals: the wallet already congratulated, the offer the user chose not to claim yet, and the
+  // last sync whose result was shown.
+  knownWallet: string | null;
+  dismissedOffer: string | null;
+  lastSyncSeen: number | null;
+  // Bumped when the link page reports a wallet change, so open popups refresh.
+  walletChangedAt: number | null;
 }
 
 const DEFAULTS: State = {
@@ -29,6 +36,10 @@ const DEFAULTS: State = {
   lastSyncResult: null,
   syncIntervalMinutes: DEFAULT_SYNC_INTERVAL_MINUTES,
   syncing: false,
+  knownWallet: null,
+  dismissedOffer: null,
+  lastSyncSeen: null,
+  walletChangedAt: null,
 };
 
 export async function getState(): Promise<State> {

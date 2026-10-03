@@ -4,12 +4,13 @@ import { pageKey, type ScoredVisit } from './points.ts';
 // Decides which of a week's visits may earn rewards. Run on all devices at once (with or without a wallet),
 // because duplicates are found by comparing devices with each other.
 //
-// 1. Live only: a visit counts if it reached the server within LIVE_WINDOW_MS (see policy.ts).
+// 1. Live only (for the weekly welcome bonus): a visit counts if it reached the server within LIVE_WINDOW_MS.
 // 2. Exact duplicates: the same URL at the same millisecond on several devices is one visit copied around.
 //    It counts once, for the device that uploaded it first; the copies count for nobody.
 // 3. Near duplicates: a device whose (page, minute) keys mostly match another device's is a copy with
 //    shifted timestamps. The device seen later earns nothing that week.
 
+// Wherever duplicates are checked: the weekly welcome bonus and shared-history claims (claims.ts).
 export interface WeekVisit extends ScoredVisit {
   deviceId: string;
   receivedAt: number;
@@ -30,8 +31,9 @@ export function isLive(v: Pick<WeekVisit, 'visitTime' | 'receivedAt'>): boolean 
 }
 
 // `firstSeen`: when each device was created; on a near-duplicate pair the newer device is the copy.
-export function checkVisits(visits: Iterable<WeekVisit>, firstSeen: Map<string, number>): Eligibility {
-  const live = [...visits].filter(isLive);
+// `liveOnly: false` keeps backfilled history too (shared-history rewards), with the same duplicate rules.
+export function checkVisits(visits: Iterable<WeekVisit>, firstSeen: Map<string, number>, { liveOnly = true } = {}): Eligibility {
+  const live = liveOnly ? [...visits].filter(isLive) : [...visits];
 
   // Exact duplicates: the owner of each (url, visitTime) is the earliest upload (device id breaks ties).
   const owners = new Map<string, WeekVisit>();

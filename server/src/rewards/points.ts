@@ -1,13 +1,23 @@
-import { MAX_PAGES, MIN_VISITS_PER_ACTIVE_DAY, POINTS_PER_ACTIVE_DAY } from './policy.ts';
+import { MAX_PAGES_PER_DAY, MIN_VISITS_PER_ACTIVE_DAY, POINTS_PER_ACTIVE_DAY, dayAt } from './policy.ts';
 
 export interface ScoredVisit {
   url: string;
   visitTime: number;
 }
 
+export interface DayScore {
+  day: number; // UTC day number (ms / 86_400_000)
+  visits: number; // public web visits that day
+  pages: number; // unique pages (domain + path) that day
+  active: boolean; // at least MIN_VISITS_PER_ACTIVE_DAY visits
+  points: number;
+}
+
 export interface Score {
-  pages: number; // unique pages (domain + path) visited during the week
-  activeDays: number; // UTC days with at least MIN_VISITS_PER_ACTIVE_DAY valid visits
+  visits: number;
+  pages: number; // sum of each day's unique pages
+  days: number;
+  activeDays: number;
   points: number;
 }
 
@@ -30,24 +40,32 @@ export function pageKey(url: string): string | null {
   return `${host}${path}`;
 }
 
-export function scoreVisits(visits: Iterable<ScoredVisit>): Score {
-  const pages = new Set<string>();
-  const visitsPerDay = new Map<number, number>();
-
+// Day by day: each UTC day with public visits earns min(unique pages, MAX_PAGES_PER_DAY) + POINTS_PER_ACTIVE_DAY
+// if it had at least MIN_VISITS_PER_ACTIVE_DAY visits. Days are sorted oldest first.
+export function scoreDays(visits: Iterable<ScoredVisit>): DayScore[] {
+  const days = new Map<number, { visits: number; pages: Set<string> }>();
   for (const visit of visits) {
     const key = pageKey(visit.url);
     if (key === null) continue;
-    pages.add(key);
-    const day = Math.floor(visit.visitTime / 86_400_000);
-    visitsPerDay.set(day, (visitsPerDay.get(day) ?? 0) + 1);
+    const day = dayAt(visit.visitTime);
+    let entry = days.get(day);
+    if (!entry) days.set(day, (entry = { visits: 0, pages: new Set() }));
+    entry.visits++;
+    entry.pages.add(key);
   }
+  return [...days].sort(([a], [b]) => a - b).map(([day, { visits, pages }]) => {
+    const active = visits >= MIN_VISITS_PER_ACTIVE_DAY;
+    return { day, visits, pages: pages.size, active, points: Math.min(pages.size, MAX_PAGES_PER_DAY) + (active ? POINTS_PER_ACTIVE_DAY : 0) };
+  });
+}
 
-  let activeDays = 0;
-  for (const count of visitsPerDay.values()) if (count >= MIN_VISITS_PER_ACTIVE_DAY) activeDays++;
-
+export function scoreVisits(visits: Iterable<ScoredVisit>): Score {
+  const days = scoreDays(visits);
   return {
-    pages: pages.size,
-    activeDays,
-    points: Math.min(pages.size, MAX_PAGES) + POINTS_PER_ACTIVE_DAY * activeDays,
+    visits: days.reduce((a, d) => a + d.visits, 0),
+    pages: days.reduce((a, d) => a + d.pages, 0),
+    days: days.length,
+    activeDays: days.filter((d) => d.active).length,
+    points: days.reduce((a, d) => a + d.points, 0),
   };
 }

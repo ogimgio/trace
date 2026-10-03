@@ -22,8 +22,9 @@ export interface RateLimits {
 
 export const DEFAULT_RATE_LIMITS: RateLimits = {
   uploads: { limit: 120, windowMs: HOUR_MS },
-  // A household or an office shares one IP: a few new devices a day is plenty for real people.
-  newDevices: { limit: 5, windowMs: DAY_MS },
+  // Offices and universities share one IP: generous here, the real per-device limit is Fingerprint's
+  // (see MAX_EXTENSIONS_PER_DEVICE), applied when a wallet is linked.
+  newDevices: { limit: 20, windowMs: DAY_MS },
   links: { limit: 30, windowMs: HOUR_MS },
 };
 

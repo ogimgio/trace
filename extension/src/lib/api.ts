@@ -34,39 +34,48 @@ export async function fetchStats(deviceId: string): Promise<DeviceStats | null> 
   return res.json() as Promise<DeviceStats>;
 }
 
+// What the shared data is worth right now (server: rewards/claims.ts). `firstDay` / `lastDay` in ms.
+export interface Offer {
+  points: number;
+  amount: string;
+  visits: number;
+  pages: number;
+  days: number;
+  activeDays: number;
+  firstDay: number | null;
+  lastDay: number | null;
+  duplicateVisits: number; // uploaded first by another device: not counted
+  paidDays: number; // already rewarded: not counted
+  copied: boolean; // this history copies another wallet's device: nothing is offered
+}
+
+export type PayoutStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'held' | 'rejected';
+
+export interface Payout {
+  epoch: number;
+  weekStartsAt: number;
+  kind: 'weekly' | 'welcome' | 'claim';
+  amount: string;
+  status: PayoutStatus;
+  explorerUrl: string | null;
+}
+
 export interface RewardsInfo {
   symbol: string;
   wallet: string | null;
-  verified: boolean; // wallet verified with World ID: only verified wallets are paid
+  deviceChecked: boolean; // wallet linked through a device check: only those are paid
   totalReceived: string;
-  currentWeek: {
-    epoch: number;
-    startsAt: number;
-    endsAt: number;
-    payableFrom: number; // the week is paid out from this moment on
-    pages: number;
-    activeDays: number;
-    points: number;
-    maxReward: string;
-    weeklyBudget: string;
-  };
-  payouts: {
-    epoch: number;
-    weekStartsAt: number;
-    kind: 'weekly' | 'welcome';
-    amount: string;
-    status: 'pending' | 'sending' | 'sent' | 'failed';
-    explorerUrl: string | null;
-  }[];
+  offer: Offer;
+  payouts: Payout[];
   rules: {
-    maxPages: number;
+    maxPagesPerDay: number;
     pointsPerActiveDay: number;
     minVisitsPerActiveDay: number;
-    maxTokensPerPoint: string;
+    tokensPerPoint: string;
+    historyDays: number;
     welcomeBonus: string;
     welcomeInstallment: string;
     welcomeMinActiveDays: number;
-    liveWindowHours: number;
   };
 }
 
@@ -85,4 +94,11 @@ export async function startWalletLink(deviceId: string, action: 'link' | 'unlink
     body: JSON.stringify({ action }),
   });
   return { url: `${SERVER_URL}${url}` };
+}
+
+// Confirms the current offer: the server records the days as paid and sends the payout.
+export function claimRewards(deviceId: string) {
+  return request<{ payout: Payout; points: number; symbol: string }>(`/api/devices/${encodeURIComponent(deviceId)}/claim`, {
+    method: 'POST',
+  });
 }

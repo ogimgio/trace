@@ -22,8 +22,6 @@ export interface Challenge {
   wallet: string | null; // for 'unlink': the wallet that must sign
   expires_at: number;
   used_at: number | null;
-  worldid_nonce: string | null; // nonce of the World ID request started for this link
-  worldid_nullifier: string | null; // set once the user has proven with World ID (decimal)
 }
 
 export async function createChallenge(sql: Sql, deviceId: string, action: LinkAction, wallet: string | null, now: number): Promise<Challenge> {
@@ -34,8 +32,6 @@ export async function createChallenge(sql: Sql, deviceId: string, action: LinkAc
     wallet,
     expires_at: now + CHALLENGE_TTL_MS,
     used_at: null,
-    worldid_nonce: null,
-    worldid_nullifier: null,
   };
   await sql`
     INSERT INTO wallet_challenges (code, device_id, action, wallet, created_at, expires_at)
@@ -46,8 +42,7 @@ export async function createChallenge(sql: Sql, deviceId: string, action: LinkAc
 
 export async function getChallenge(sql: Sql, code: string): Promise<Challenge | undefined> {
   const [row] = await sql<Challenge[]>`
-    SELECT code, device_id, action, wallet, expires_at, used_at, worldid_nonce, worldid_nullifier
-    FROM wallet_challenges WHERE code = ${code}
+    SELECT code, device_id, action, wallet, expires_at, used_at FROM wallet_challenges WHERE code = ${code}
   `;
   return row;
 }

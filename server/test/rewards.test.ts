@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { Keypair, SendTransactionError } from '@solana/web3.js';
 import type { Sql } from '../src/db.ts';
-import { pageKey, scoreVisits } from '../src/rewards/points.ts';
-import { epochBudget, epochRange, toUnits } from '../src/rewards/policy.ts';
-import { countableVisits, distribute, planEpoch, readyEpochs, sendPayouts, settleEpoch } from '../src/rewards/settle.ts';
+import { pageKey, scoreDays } from '../src/rewards/points.ts';
+import { epochRange, toUnits } from '../src/rewards/policy.ts';
+import { planEpoch, readyEpochs, sendPayouts, settleEpoch } from '../src/rewards/settle.ts';
+import { claimOffer, computeOffer } from '../src/rewards/claims.ts';
 import { checkVisits, type WeekVisit } from '../src/rewards/eligibility.ts';
+import { walletsUnderReview } from '../src/rewards/risk.ts';
 import { purgeExpiredVisits, RETENTION_MS } from '../src/retention.ts';
 import { startTestDb } from './db.ts';
 
@@ -29,42 +31,38 @@ test('pageKey keeps only public web pages and ignores query/fragment', () => {
   }
 });
 
-test('scoreVisits caps pages and counts active days', () => {
+test('each day earns its unique pages (capped) plus a bonus when active', () => {
   const { startsAt } = epochRange(0);
-  // A script opening 5000 different URLs in one day
+  // A script opening 5000 different URLs in one day: capped at 100 pages
   const spam = Array.from({ length: 5000 }, (_, i) => ({ url: `https://spam.com/${i}`, visitTime: startsAt + i }));
-  assert.deepEqual(scoreVisits(spam), { pages: 5000, activeDays: 1, points: 1000 + 100 });
+  assert.deepEqual(scoreDays(spam).map((d) => d.points), [100 + 100]);
 
-  // Normal browsing: 7 days with 10 visits, plus a day with only 2 visits that does not count
+  // 7 days with 10 visits to 10 sites, then a day with only 2 visits: no active-day bonus
   const normal = [];
   for (let d = 0; d < 7; d++) for (let i = 0; i < 10; i++) normal.push({ url: `https://site${i}.com/`, visitTime: startsAt + d * DAY + i });
-  assert.deepEqual(scoreVisits(normal), { pages: 10, activeDays: 7, points: 10 + 700 });
+  normal.push({ url: 'https://a.com/', visitTime: startsAt + 7 * DAY }, { url: 'https://b.com/', visitTime: startsAt + 7 * DAY + 1 });
+  const days = scoreDays(normal);
+  assert.deepEqual(days.map((d) => d.points), [110, 110, 110, 110, 110, 110, 110, 2]);
+  assert.deepEqual(days.at(-1), { day: Math.floor((startsAt + 7 * DAY) / DAY), visits: 2, pages: 2, active: false, points: 2 });
 });
 
-test('weekly budget decays by 1% and never exceeds the 500M pool', () => {
-  assert.equal(epochBudget(0, D), toUnits(5_000_000n, D));
-  assert.equal(epochBudget(1, D), toUnits(4_950_000n, D));
-  let total = 0n;
-  for (let e = 0; e < 1500; e++) total += epochBudget(e, D);
-  assert.ok(total <= toUnits(500_000_000n, D));
-  assert.ok(total > toUnits(499_000_000n, D));
-});
-
-test('distribute is proportional, capped per point and never exceeds the budget', () => {
-  // Few users: the per-point cap applies
-  assert.deepEqual(distribute(1_000_000n, [100, 300], 10n), [1000n, 3000n]);
-  // Many points: the proportional split applies
-  assert.deepEqual(distribute(1000n, [100, 300], 10n), [250n, 750n]);
-  const amounts = distribute(1000n, [1, 1, 1], 1000n);
-  assert.ok(amounts.reduce((a, b) => a + b) <= 1000n);
-  assert.deepEqual(distribute(1000n, [], 1n), []);
-});
-
-// Marks wallets as verified with World ID (one anonymous nullifier each): only those are paid.
-let humans = 0;
+// Marks wallets as linked through a Fingerprint device check (one device each): only those are paid.
+let devices = 0;
 async function verify(...wallets: string[]) {
   for (const wallet of wallets) {
-    await db`INSERT INTO worldid_verifications (action, nullifier, wallet, verified_at) VALUES ('link-wallet', ${String(++humans)}, ${wallet}, 0)`;
+    await db`
+      INSERT INTO device_fingerprints (visitor_id, wallet, first_seen_at, last_seen_at, cluster_key)
+      VALUES (${`visitor-${++devices}`}, ${wallet}, 0, 0, ${`net-${devices}`})
+    `;
+  }
+}
+
+async function pendingPayouts(n: number) {
+  for (let i = 0; i < n; i++) {
+    await db`
+      INSERT INTO reward_payouts (epoch, device_id, wallet, kind, points, amount, status, created_at)
+      VALUES (0, ${`dev-${i}`}, ${Keypair.generate().publicKey.toBase58()}, 'claim', 10, ${toUnits(10n, D).toString()}, 'pending', 0)
+    `;
   }
 }
 
@@ -92,22 +90,16 @@ async function seed() {
   return { wallets, afterEpoch0: epochRange(0).endsAt + 9 * DAY };
 }
 
-test('settleEpoch pays devices with a wallet, adds a welcome installment to active ones, and is final', async () => {
+test('weekly settlement pays the welcome installment to active wallets, and is final', async () => {
   const { wallets, afterEpoch0 } = await seed();
   const plan = await settleEpoch(db, 0, D, afterEpoch0);
-
-  assert.equal(plan.totalPoints, 840 + 220);
-  const byKey = Object.fromEntries(plan.payouts.map((p) => [`${p.deviceId}:${p.kind}`, p]));
-  // dev-a was active 7 days: installment. dev-b only 2 days (< 3): no installment this week
-  assert.deepEqual(Object.keys(byKey).sort(), ['dev-a:weekly', 'dev-a:welcome', 'dev-b:weekly']);
-  // Few users: each gets the cap of 1 TRACE per point
-  assert.equal(byKey['dev-a:weekly'].amount, toUnits(840n, D));
-  assert.equal(byKey['dev-b:weekly'].amount, toUnits(220n, D));
-  assert.equal(byKey['dev-a:welcome'].amount, toUnits(50n, D));
-  assert.equal(byKey['dev-a:weekly'].wallet, wallets.a);
+  // dev-a was active 7 days: installment. dev-b only 2 days (< 3): none. Shared data is paid by claims.
+  assert.deepEqual(plan.payouts.map((p) => `${p.deviceId}:${p.kind}`), ['dev-a:welcome']);
+  assert.equal(plan.payouts[0].amount, toUnits(50n, D));
+  assert.equal(plan.payouts[0].wallet, wallets.a);
 
   const [rows] = await db`SELECT COUNT(*) AS n FROM reward_payouts WHERE status = 'pending'`;
-  assert.equal(rows.n, 3);
+  assert.equal(rows.n, 1);
   await assert.rejects(settleEpoch(db, 0, D, afterEpoch0), /already settled/);
   assert.deepEqual(await readyEpochs(db, afterEpoch0), []);
   // No activity the following week: no installment
@@ -125,8 +117,7 @@ test('settleEpoch refuses weeks that are not over (or within the grace period)',
 });
 
 test('sendPayouts marks sent, retryable failures, and unknown outcomes separately', async () => {
-  const { afterEpoch0 } = await seed();
-  await settleEpoch(db, 0, D, afterEpoch0);
+  await pendingPayouts(3);
   let call = 0;
   const rewarder = {
     async send() {
@@ -146,8 +137,7 @@ test('sendPayouts marks sent, retryable failures, and unknown outcomes separatel
 });
 
 test('concurrent sendPayouts never pay the same row twice', async () => {
-  const { afterEpoch0 } = await seed();
-  await settleEpoch(db, 0, D, afterEpoch0);
+  await pendingPayouts(3);
   let sends = 0;
   const slow = { send: async () => { sends++; await new Promise((r) => setTimeout(r, 5)); return { signature: `s${sends}`, explorerUrl: '' }; } };
   const [a, b] = await Promise.all([sendPayouts(db, slow), sendPayouts(db, slow)]);
@@ -165,7 +155,7 @@ test('visits are purged after the retention period, payouts are kept', async () 
   const [left] = await db`SELECT COUNT(*) AS n FROM visits WHERE device_id = 'dev-a'`;
   assert.equal(left.n, 0);
   const [payouts] = await db`SELECT COUNT(*) AS n FROM reward_payouts`;
-  assert.equal(payouts.n, 3);
+  assert.equal(payouts.n, 1);
 });
 
 // --- Live visits and duplicates (eligibility.ts) ---
@@ -229,8 +219,7 @@ test('genuine users visiting the same popular pages are not flagged', () => {
   assert.equal(check.visits.get('bob')?.length, 7 * 25 + 3);
 });
 
-test('settlement ignores duplicated devices and the estimate drops exact copies', async () => {
-  const { startsAt, endsAt } = epochRange(0);
+test('the welcome bonus ignores devices whose history copies another', async () => {
   const wallets = [Keypair.generate(), Keypair.generate()].map((k) => k.publicKey.toBase58());
   await db`INSERT INTO devices ${db([
     { id: 'alice', created_at: 1, wallet_address: wallets[0] },
@@ -241,11 +230,8 @@ test('settlement ignores duplicated devices and the estimate drops exact copies'
   const rows = [...original, ...original.map((v) => ({ ...v, deviceId: 'mallory', receivedAt: v.receivedAt + 1 }))]
     .map((v, i) => ({ device_id: v.deviceId, visit_id: String(i), url: v.url, visit_time: v.visitTime, received_at: v.receivedAt }));
   await db`INSERT INTO visits ${db(rows)}`;
-
   const plan = await planEpoch(db, 0, D);
-  assert.deepEqual(plan.payouts.map((p) => `${p.deviceId}:${p.kind}`).sort(), ['alice:weekly', 'alice:welcome']);
-  assert.equal((await countableVisits(db, 'alice', startsAt, endsAt)).length, 7 * 25);
-  assert.equal((await countableVisits(db, 'mallory', startsAt, endsAt)).length, 0);
+  assert.deepEqual(plan.payouts.map((p) => `${p.deviceId}:${p.kind}`), ['alice:welcome']);
 });
 
 test('the welcome bonus is paid in weekly installments up to the total, once per wallet per week', async () => {
@@ -276,9 +262,122 @@ test('the welcome bonus is paid in weekly installments up to the total, once per
   assert.ok(welcome.every((w) => w.amount === toUnits(50n, D).toString()));
 });
 
-test('wallets not verified with World ID earn nothing, but their visits still count as originals', async () => {
+test('wallets without a device check earn nothing, but their visits still count as originals', async () => {
   const { afterEpoch0, wallets } = await seed();
-  await db`DELETE FROM worldid_verifications WHERE wallet = ${wallets.b}`;
+  await db`DELETE FROM device_fingerprints WHERE wallet = ${wallets.b}`;
   const plan = await settleEpoch(db, 0, D, afterEpoch0);
-  assert.deepEqual(plan.payouts.map((p) => `${p.deviceId}:${p.kind}`).sort(), ['dev-a:weekly', 'dev-a:welcome']);
+  assert.deepEqual(plan.payouts.map((p) => `${p.deviceId}:${p.kind}`), ['dev-a:welcome']);
+});
+
+test('risky devices get their wallet held for review, never refused', async () => {
+  const { afterEpoch0, wallets } = await seed();
+  // dev-a's device has a high suspect score
+  await db`UPDATE device_fingerprints SET suspect_score = 40 WHERE wallet = ${wallets.a}`;
+  const plan = await settleEpoch(db, 0, D, afterEpoch0);
+  assert.deepEqual(plan.payouts.map((p) => p.wallet), [wallets.a]);
+  assert.match(plan.payouts[0].holdReason!, /suspect score 40/);
+  const [row] = await db<{ status: string }[]>`SELECT status FROM reward_payouts`;
+  assert.equal(row.status, 'held');
+  // Held payouts are never sent automatically
+  assert.deepEqual(await sendPayouts(db, { send: async () => ({ signature: 's', explorerUrl: '' }) }), []);
+});
+
+test('review reasons: devices trying other wallets, and clusters of wallets on one network', async () => {
+  const now = epochRange(0).endsAt;
+  const w = Array.from({ length: 6 }, () => Keypair.generate().publicKey.toBase58());
+  // w[0]'s device tried to link two other wallets
+  await db`INSERT INTO device_fingerprints (visitor_id, wallet, first_seen_at, last_seen_at) VALUES ('farm-pc', ${w[0]}, 0, ${now})`;
+  await db`INSERT INTO device_link_rejections (visitor_id, wallet, created_at) VALUES ('farm-pc', 'x', ${now}), ('farm-pc', 'y', ${now})`;
+  // w[1..5]: five wallets, five devices, same network and browser setup
+  for (let i = 1; i <= 5; i++) {
+    await db`INSERT INTO device_fingerprints (visitor_id, wallet, first_seen_at, last_seen_at, cluster_key) VALUES (${`d${i}`}, ${w[i]}, 0, ${now}, 'same-net')`;
+  }
+  const review = await walletsUnderReview(db, now);
+  assert.match(review.get(w[0])!, /2 attempts to link other wallets/);
+  for (let i = 1; i <= 5; i++) assert.match(review.get(w[i])!, /cluster of 5 wallets/);
+  // Four wallets on one network (a family) is below the threshold
+  await db`DELETE FROM device_fingerprints WHERE visitor_id = 'd5'`;
+  assert.equal((await walletsUnderReview(db, now)).has(w[1]), false);
+});
+
+// --- Shared-data claims (claims.ts) ---
+
+const NOW = epochRange(0).startsAt + 20 * DAY + 5 * HOUR; // mid-morning of day 20
+const TODAY = Math.floor(NOW / DAY);
+
+// A device that just uploaded its history: `days` days before today with 10 visits each (5 pages), plus
+// some visits today. Everything received now, like the first sync after installing.
+async function historyDevice(id: string, wallet: string | null, { days = 10, host = id, createdAt = 0, lag = 0 } = {}) {
+  await db`INSERT INTO devices (id, created_at, wallet_address) VALUES (${id}, ${createdAt}, ${wallet}) ON CONFLICT DO NOTHING`;
+  const rows = [];
+  for (let d = -days; d <= 0; d++) for (let i = 0; i < 10; i++) {
+    const visitTime = (TODAY + d) * DAY + HOUR + i * 60_000;
+    if (visitTime > NOW) continue;
+    rows.push({ device_id: id, visit_id: `${d}-${i}`, url: `https://${host}.com/${d}/${i % 5}`, visit_time: visitTime, received_at: NOW + lag });
+  }
+  await db`INSERT INTO visits ${db(rows)}`;
+}
+
+test('shared history is offered day by day, today excluded until it ends', async () => {
+  const wallet = Keypair.generate().publicKey.toBase58();
+  await historyDevice('h1', wallet);
+  const offer = await computeOffer(db, 'h1', wallet, NOW, D);
+  // 10 finished days × (5 pages + 100 for an active day)
+  assert.equal(offer.days.length, 10);
+  assert.equal(offer.points, 10 * 105);
+  assert.equal(offer.visits, 100);
+  assert.equal(offer.activeDays, 10);
+  assert.equal(offer.amount, toUnits(1050n, D));
+  assert.ok(offer.days.every((d) => d.day < TODAY));
+  // History older than 90 days is not paid
+  assert.equal((await computeOffer(db, 'h1', wallet, NOW + 95 * DAY, D)).points, 0);
+});
+
+test('a claim pays the offered days once: claiming again or re-uploading from another install earns nothing', async () => {
+  const wallet = Keypair.generate().publicKey.toBase58();
+  await historyDevice('h2', wallet);
+  const { payout } = await claimOffer(db, 'h2', wallet, NOW, D);
+  assert.equal(payout?.kind, 'claim');
+  assert.equal(payout?.points, 1050);
+  assert.equal(payout?.status, 'pending');
+
+  assert.equal((await claimOffer(db, 'h2', wallet, NOW, D)).payout, null);
+  // The same history from a reinstalled extension (new device ID, same wallet): exact copies and paid days
+  await historyDevice('h2-reinstall', wallet, { host: 'h2', lag: 1 });
+  const again = await computeOffer(db, 'h2-reinstall', wallet, NOW, D);
+  assert.equal(again.points, 0);
+  assert.equal(again.copiedFrom, null); // a copy of the same wallet's own device is not flagged as theft
+  // The next day, yesterday becomes claimable
+  const tomorrow = await computeOffer(db, 'h2', wallet, NOW + DAY, D);
+  assert.deepEqual(tomorrow.days.map((d) => d.day), [TODAY]);
+});
+
+test('other wallets get nothing for a copied history, and the original keeps its offer', async () => {
+  const [alice, mallory] = [Keypair.generate(), Keypair.generate()].map((k) => k.publicKey.toBase58());
+  await historyDevice('orig', alice, { createdAt: 1 });
+  await historyDevice('copy', mallory, { host: 'orig', createdAt: 2, lag: 1 });
+  const copy = await computeOffer(db, 'copy', mallory, NOW, D);
+  assert.equal(copy.copiedFrom, 'orig');
+  assert.equal(copy.points, 0);
+  assert.equal((await claimOffer(db, 'copy', mallory, NOW, D)).payout, null);
+  assert.equal((await computeOffer(db, 'orig', alice, NOW, D)).points, 1050);
+});
+
+test('parallel claims never pay a day twice', async () => {
+  const wallet = Keypair.generate().publicKey.toBase58();
+  await historyDevice('h3', wallet);
+  const results = await Promise.all([claimOffer(db, 'h3', wallet, NOW, D), claimOffer(db, 'h3', wallet, NOW, D)]);
+  const paid = results.filter((r) => r.payout).map((r) => r.payout!.points);
+  assert.equal(paid.reduce((a, b) => a + b, 0), 1050);
+  const [days] = await db`SELECT COUNT(*)::int AS n FROM reward_days WHERE wallet = ${wallet}`;
+  assert.equal(days.n, 10);
+});
+
+test('claims of risky wallets are held for review', async () => {
+  const wallet = Keypair.generate().publicKey.toBase58();
+  await historyDevice('h4', wallet);
+  await db`INSERT INTO device_fingerprints (visitor_id, wallet, first_seen_at, last_seen_at, suspect_score) VALUES ('risky', ${wallet}, 0, ${NOW}, 40)`;
+  const { payout } = await claimOffer(db, 'h4', wallet, NOW, D);
+  assert.equal(payout?.status, 'held');
+  assert.match(payout?.hold_reason ?? '', /suspect score/);
 });

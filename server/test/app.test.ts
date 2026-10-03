@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { createPrivateKey, sign } from 'node:crypto';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
+import { Keypair } from '@solana/web3.js';
 import { createApp } from '../src/api.ts';
 import { startTestDb } from './db.ts';
 
@@ -102,11 +104,31 @@ test('public stats expose only aggregate numbers', async () => {
   assert.equal(stats.tokensPaid, '0');
 });
 
-test('without World ID configured, wallets cannot be linked (fail closed)', async () => {
-  await upload('dev-noworld', [visit(1)]);
-  const { code } = await (await fetch(`${base}/api/devices/dev-noworld/link-challenge`, {
+test('without the device check configured, wallets cannot be linked (fail closed)', async () => {
+  await upload('dev-nocheck', [visit(1)]);
+  const { code } = await (await fetch(`${base}/api/devices/dev-nocheck/link-challenge`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
   })).json();
-  const start = await fetch(`${base}/api/link/${code}/worldid/start`, { method: 'POST' });
-  assert.equal(start.status, 503);
+  const info = await (await fetch(`${base}/api/link/${code}`)).json();
+  assert.equal(info.deviceCheck, null);
+
+  const wallet = Keypair.generate();
+  const key = createPrivateKey({
+    key: {
+      kty: 'OKP', crv: 'Ed25519',
+      d: Buffer.from(wallet.secretKey.subarray(0, 32)).toString('base64url'),
+      x: Buffer.from(wallet.publicKey.toBytes()).toString('base64url'),
+    },
+    format: 'jwk',
+  });
+  const res = await fetch(`${base}/api/link/${code}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      wallet: wallet.publicKey.toBase58(),
+      signature: sign(null, Buffer.from(info.message, 'utf8'), key).toString('base64'),
+      deviceEventId: 'pc:1',
+    }),
+  });
+  assert.equal(res.status, 503);
 });
