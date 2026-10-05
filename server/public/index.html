@@ -324,27 +324,27 @@
     <div class="wrap">
       <p class="eyebrow">Earn</p>
       <h2>Simple rules. Built to reward real people, not bots.</h2>
-      <p class="section-lead">A fixed weekly budget is split among everyone in proportion to their points. The rules are public and enforced by the server, and every payout is on-chain.</p>
+      <p class="section-lead">Rewards follow genuine, everyday browsing. Each week a shared budget is split among everyone who contributes, and every payout is public on-chain.</p>
       <div class="earn-grid">
         <div class="rules">
-          <div class="rule"><div class="rule-icon">🌐</div><div><h3>Unique pages count, up to 1,000</h3><p>Domain plus path, without the query string. A script opening thousands of URLs gains nothing past the cap.</p></div></div>
-          <div class="rule"><div class="rule-icon">📅</div><div><h3>+100 points per active day</h3><p>Any day with at least 5 visits. Consistency matters more than volume, and it's hard to fake.</p></div></div>
-          <div class="rule"><div class="rule-icon">🎁</div><div><h3>500 TRACE welcome bonus</h3><p>Sent instantly when you link your wallet, if your history has 7 active days. Once per browser and per wallet.</p></div></div>
-          <div class="rule"><div class="rule-icon">📉</div><div><h3>A budget that never runs dry</h3><p>5M TRACE in week one, 1% less every week. All weekly budgets add up to exactly the 500M reward pool.</p></div></div>
+          <div class="rule"><div class="rule-icon">🌐</div><div><h3>Variety beats volume</h3><p>Exploring different pages counts. Repeating the same ones or generating endless URLs doesn't, so scripts gain nothing.</p></div></div>
+          <div class="rule"><div class="rule-icon">📅</div><div><h3>Consistency pays</h3><p>Regular, everyday browsing earns more than bursts. It's what real people do, and it's hard to fake.</p></div></div>
+          <div class="rule"><div class="rule-icon">🎁</div><div><h3>A welcome bonus</h3><p>Link your wallet and get TRACE right away, once per browser, as a thank-you for the history you already have.</p></div></div>
+          <div class="rule"><div class="rule-icon">📉</div><div><h3>A pool built to last</h3><p>Rewards come from a fixed pool released a little at a time, so there's always something left for the weeks ahead.</p></div></div>
         </div>
 
         <div class="card calc">
-          <h3>Estimate your weekly rewards</h3>
+          <h3>What could you earn?</h3>
           <p class="note" style="margin:0">Move the sliders to match a typical week.</p>
-          <label for="pages">Unique pages visited <span id="pages-out">600</span></label>
-          <input id="pages" type="range" min="0" max="2000" step="10" value="600">
-          <label for="days">Active days <span id="days-out">5</span></label>
+          <label for="variety">How varied is your browsing? <span id="variety-out">Moderate</span></label>
+          <input id="variety" type="range" min="0" max="3" step="1" value="2">
+          <label for="days">Days a week you browse <span id="days-out">5</span></label>
           <input id="days" type="range" min="0" max="7" step="1" value="5">
           <div class="calc-out">
-            <div><small>Points this week</small><strong id="points-out">1,100</strong></div>
-            <div style="text-align:right"><small>Up to</small><strong id="tokens-out">1,100</strong> <small>TRACE / week</small></div>
+            <div><small>Estimated rewards</small><strong id="tokens-out">≈ 1,000</strong></div>
+            <div style="text-align:right"><small>TRACE / week</small></div>
           </div>
-          <p class="note">Each point pays at most 1 TRACE. When many people share, the weekly budget is split proportionally.</p>
+          <p class="note">A rough estimate: actual rewards depend on how you browse and how many people share each week.</p>
         </div>
       </div>
     </div>
@@ -466,17 +466,18 @@
   <script>
     const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
 
-    // Reward estimate: same formula as the server (min(pages, 1000) + 100 × active days, max 1 TRACE per point).
-    const pages = document.getElementById('pages');
+    // Rough reward estimate, based on the server's rules (rewards/policy.ts) but shown without the formula.
+    const VARIETY = [['Very little', 30], ['Light', 200], ['Moderate', 500], ['Very varied', 1000]];
+    const variety = document.getElementById('variety');
     const days = document.getElementById('days');
     function updateCalc() {
-      const points = Math.min(Number(pages.value), 1000) + 100 * Number(days.value);
-      document.getElementById('pages-out').textContent = fmt(pages.value);
+      const [label, pages] = VARIETY[Number(variety.value)];
+      const estimate = Math.round((Math.min(pages, 1000) * Math.min(Number(days.value), 7) / 7 + 100 * Number(days.value)) / 50) * 50;
+      document.getElementById('variety-out').textContent = label;
       document.getElementById('days-out').textContent = days.value;
-      document.getElementById('points-out').textContent = fmt(points);
-      document.getElementById('tokens-out').textContent = fmt(points);
+      document.getElementById('tokens-out').textContent = `≈ ${fmt(estimate)}`;
     }
-    pages.addEventListener('input', updateCalc);
+    variety.addEventListener('input', updateCalc);
     days.addEventListener('input', updateCalc);
     updateCalc();
 
