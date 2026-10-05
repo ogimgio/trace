@@ -161,6 +161,8 @@ Environment variables on Vercel:
 
 ## Known limitations and next steps
 
+- **Data union.** Next, a share of the revenue from licensing anonymized, aggregated insights (never individual histories) refills the rewards pool and is paid out to contributors based on the data they share. The exact split will be published before launch, after legal review.
+
 - **Device identity.** The signature proves wallet ownership, not device ownership: the random `deviceId` is still the credential for uploading history.
 - **Sybil resistance.** Rules apply per device and per wallet, so many devices and wallets multiply bonuses. Next: proof-of-personhood or stake-weighted limits before mainnet.
 - **Chrome Web Store.** Publishing requires a privacy policy, a data-use disclosure and compliance with the store's Limited Use policy (browsing data only for user-facing features, never sold to third parties); the MVP is distributed as an unpacked extension.

@@ -119,6 +119,21 @@
     .calc-out small { display: block; font-size: 14px; font-weight: 500; }
     .note { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
 
+    /* Roadmap: data union flow */
+    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 34px; margin: 8px 0 28px; }
+    .flow-step { position: relative; background: var(--paper); border: var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; }
+    .flow-step:not(:last-child)::after { content: '→'; position: absolute; right: -28px; top: 50%; transform: translateY(-50%); font: 700 24px var(--display); }
+    .flow-step strong { display: block; font: 700 19px/1.2 var(--display); margin: 10px 0 6px; }
+    .flow-step p { margin: 0; color: var(--ink-soft); font-size: 15px; }
+    .flow-icon { width: 44px; height: 44px; border: var(--line); border-radius: 12px; display: grid; place-items: center; background: var(--sky); font-size: 20px; }
+    .flow-step:nth-child(2) .flow-icon { background: var(--soft); }
+    .flow-step:nth-child(3) .flow-icon { background: #ffd66b; }
+    .roadmap-note { color: var(--muted); font-size: 15px; max-width: 720px; margin: 0; }
+    @media (max-width: 900px) {
+      .flow { grid-template-columns: 1fr; gap: 30px; }
+      .flow-step:not(:last-child)::after { content: '↓'; right: auto; left: 50%; top: auto; bottom: -30px; transform: translateX(-50%); }
+    }
+
     /* Install */
     .install { display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px; align-items: start; }
     .install ol { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 16px; }
@@ -332,6 +347,21 @@
           <p class="note">Each point pays at most 1 TRACE. When many people share, the weekly budget is split proportionally.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <div class="wrap">
+      <p class="eyebrow">Where this is going</p>
+      <h2>A data union: the value of your data flows back to you.</h2>
+      <p class="section-lead">Today, TRACE rewards come from a fixed pool. Next, when companies license anonymized, aggregated insights built from TRACE data (never your individual history), a share of that revenue goes back into the rewards pool and is paid out to the people whose data made it possible, based on what they share.</p>
+      <div class="flow">
+        <div class="flow-step"><div class="flow-icon">🌐</div><strong>You share</strong><p>Your browsing history, with consent and filtered on your device.</p></div>
+        <div class="flow-step"><div class="flow-icon">📊</div><strong>Anonymized insights</strong><p>Aggregated trends that never identify you are licensed to companies.</p></div>
+        <div class="flow-step"><div class="flow-icon">💧</div><strong>Revenue refills the pool</strong><p>A share of what those insights earn goes back into the rewards pool.</p></div>
+        <div class="flow-step"><div class="flow-icon">🎁</div><strong>Paid to contributors</strong><p>Distributed to the people who shared, based on what they share.</p></div>
+      </div>
+      <p class="roadmap-note">The more value the community's data creates, the more its members earn. We'll publish the exact revenue split before launch, after legal review.</p>
     </div>
   </section>
 
